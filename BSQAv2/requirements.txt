@@ -1,0 +1,31 @@
+# Core ML
+torch>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+
+# Pose Estimation (for video_to_csv)
+mediapipe>=0.10.0
+opencv-python>=4.8.0
+
+# Video Download (for data collection)
+yt-dlp>=2024.0.0
+
+# DTW (for quality scoring)
+dtw-python>=1.3.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Experiment tracking
+tensorboard>=2.14.0
+
+# Web Demo
+streamlit>=1.28.0
+
+# Utilities
+tqdm>=4.65.0
+
+# Development
+jupyter>=1.0.0

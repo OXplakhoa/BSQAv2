@@ -1,0 +1,27 @@
+# Ignore checkpoints and runs
+checkpoints/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (optional, uncomment if dataset is large)
+# motion-data-for-badminton-shots/
