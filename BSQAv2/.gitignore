@@ -6,8 +6,10 @@ __pycache__/
 # Data (too large for git)
 data/kaggle/
 data/youtube/
+data/flagged/
 clips/
 raw_videos/
+*.task
 
 # Model outputs
 checkpoints/

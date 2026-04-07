@@ -13,10 +13,22 @@ from typing import List, Tuple, Optional
 
 try:
     import cv2
+    import urllib.request
     import mediapipe as mp
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
 except ImportError:
     print("Install dependencies: pip install opencv-python mediapipe")
     raise
+
+
+MODEL_PATH = Path("pose_landmarker_full.task")
+MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task"
+
+def ensure_model():
+    if not MODEL_PATH.exists():
+        print("Downloading MediaPipe Pose model (heavy)...")
+        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
 
 # ── MediaPipe 33 → COCO-17 mapping ──────────────────────────────────────────
@@ -42,12 +54,15 @@ MEDIAPIPE_TO_COCO17 = {
     28: 16, # right_ankle → right_ankle
 }
 
-# Critical joints for badminton (wrists, elbows, shoulders)
-CRITICAL_COCO_INDICES = [5, 6, 7, 8, 9, 10]
+# Critical joints for badminton
+# Note: Only shoulders are truly "critical" for QC. Wrists/elbows are
+# frequently occluded or blurred in broadcast footage but still get
+# reasonable estimates. We keep them for extraction but don't gate on them.
+CRITICAL_COCO_INDICES = [5, 6]  # shoulders only — stable even in fast motion
 NUM_COCO_KEYPOINTS = 17
-CONFIDENCE_THRESHOLD = 0.5
-JUMP_THRESHOLD_PX = 100
-MISSING_JOINT_RATIO_LIMIT = 0.30
+CONFIDENCE_THRESHOLD = 0.3      # lowered: broadcast video has more blur
+JUMP_THRESHOLD_PX = 200         # raised: jump smash can exceed 150px/frame
+MISSING_JOINT_RATIO_LIMIT = 0.50
 
 
 def extract_keypoints_from_video(
@@ -68,7 +83,7 @@ def extract_keypoints_from_video(
         visibilities: (T, 17) array of visibility scores
         fps: Video FPS
     """
-    mp_pose = mp.solutions.pose
+    ensure_model()
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -81,26 +96,37 @@ def extract_keypoints_from_video(
     all_keypoints = []
     all_visibilities = []
 
-    with mp_pose.Pose(
-        static_image_mode=False,
-        model_complexity=2,
-        min_detection_confidence=min_detection_confidence,
+    base_options = mp_python.BaseOptions(model_asset_path=str(MODEL_PATH))
+    options = vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=min_detection_confidence,
+        min_pose_presence_confidence=min_tracking_confidence,
         min_tracking_confidence=min_tracking_confidence,
-    ) as pose:
+    )
+
+    with vision.PoseLandmarker.create_from_options(options) as landmarker:
+        frame_idx = 0
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = pose.process(rgb)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            timestamp_ms = int(frame_idx * 1000 / fps)
+            frame_idx += 1
+
+            results = landmarker.detect_for_video(mp_image, timestamp_ms)
 
             frame_kpts = np.zeros((NUM_COCO_KEYPOINTS, 2))
             frame_vis = np.zeros(NUM_COCO_KEYPOINTS)
 
-            if results.pose_landmarks:
+            if results.pose_landmarks and len(results.pose_landmarks) > 0:
+                pose_landmarks = results.pose_landmarks[0]
                 for mp_idx, coco_idx in MEDIAPIPE_TO_COCO17.items():
-                    lm = results.pose_landmarks.landmark[mp_idx]
+                    lm = pose_landmarks[mp_idx]
                     frame_vis[coco_idx] = lm.visibility
                     if lm.visibility >= CONFIDENCE_THRESHOLD:
                         frame_kpts[coco_idx, 0] = lm.x * width
