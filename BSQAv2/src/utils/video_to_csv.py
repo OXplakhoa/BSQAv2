@@ -170,15 +170,37 @@ def quality_control(
                 f"Critical joint {coco_idx} visible only {ratio:.0%} of frames"
             )
 
-    # Check 2: Jump detection — large displacement between consecutive frames
+    # Check 2: Relative jump detection — flag only when individual joints
+    # deviate significantly from the body's median movement.
+    # Real athletic movement (lunge, jump smash) moves ALL joints together;
+    # tracker errors make 1-2 joints teleport while the rest stay coherent.
+    #
+    # EXCLUDED from check: limb extremities that naturally move much faster
+    # than the torso during badminton strokes (wrists swing racket, ankles
+    # lunge, knees/elbows follow through).
+    OUTLIER_RATIO = 3.0   # joint must move >3x the median body displacement
+    MIN_ABSOLUTE_PX = 150 # ignore small movements even if ratio is high
+    JUMP_EXCLUDE_JOINTS = {7, 8, 9, 10, 13, 14, 15, 16}  # elbows, wrists, knees, ankles
     for t in range(1, T):
         diff = np.linalg.norm(keypoints[t] - keypoints[t-1], axis=1)
-        # Only check non-zero joints
         valid = (keypoints[t].sum(axis=1) != 0) & (keypoints[t-1].sum(axis=1) != 0)
-        if valid.any() and diff[valid].max() > JUMP_THRESHOLD_PX:
-            reasons.append(
-                f"Jump detected at frame {t}: max displacement = {diff[valid].max():.0f}px"
-            )
+        if valid.sum() < 3:
+            continue  # not enough joints to judge
+
+        valid_diffs = diff[valid]
+        median_disp = np.median(valid_diffs)
+
+        for j_idx in np.where(valid)[0]:
+            if j_idx in JUMP_EXCLUDE_JOINTS:
+                continue  # skip limb extremities
+            joint_disp = diff[j_idx]
+            # Flag only if: (a) large absolute move AND (b) outlier vs body median
+            if joint_disp > MIN_ABSOLUTE_PX and median_disp > 0 and (joint_disp / median_disp) > OUTLIER_RATIO:
+                reasons.append(
+                    f"Outlier joint {j_idx} at frame {t}: "
+                    f"{joint_disp:.0f}px vs median {median_disp:.0f}px "
+                    f"(ratio {joint_disp/median_disp:.1f}x)"
+                )
 
     # Check 3: Overall missing joint ratio
     total_joints = T * NUM_COCO_KEYPOINTS
