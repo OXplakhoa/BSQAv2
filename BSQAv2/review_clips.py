@@ -1,7 +1,12 @@
 """
 tools/review_clips.py
-Batch review tool for flagged clips.
-Keyboard: Y=approve, N=reject, S=skip, R=replay, Q=quit
+Batch clip review tool with skeleton overlay.
+Keyboard: Y=approve, N=reject, S=skip, R=replay, SPACE=pause, Q=quit
+
+Modes:
+  Normal:    Y moves clip to --approved-dir, N moves to --rejected-dir
+  In-place:  Y keeps clip where it is,       N moves to --rejected-dir
+             Use --in-place when reviewing clips already in data/clips/
 """
 import cv2
 import mediapipe as mp
@@ -36,7 +41,7 @@ def save_progress(progress: dict):
         json.dump(progress, f, indent=2)
 
 
-def play_clip(cap, landmarker, clip_path: Path, clip_idx: int, total: int) -> str:
+def play_clip(cap, landmarker, clip_path: Path, clip_idx: int, total: int, in_place: bool) -> str:
     """
     Play a single clip with skeleton overlay.
     Returns: 'approve', 'reject', 'skip', 'replay', 'quit'
@@ -45,17 +50,18 @@ def play_clip(cap, landmarker, clip_path: Path, clip_idx: int, total: int) -> st
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_idx = 0
     action = None
+    last_frame = None
 
     while cap.isOpened() and action is None:
         ret, frame = cap.read()
 
-        # Hết video → dừng và chờ quyết định
+        # Hết video → giữ lại frame cuối và chờ quyết định
         if not ret:
-            cv2.putText(frame if ret else
-                        cv2.imread(str(clip_path)),  # fallback
-                        "END — Y:Approve  N:Reject  S:Skip  R:Replay",
-                        (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            # Chờ input sau khi video hết
+            if last_frame is not None:
+                end_frame = last_frame.copy()
+                cv2.putText(end_frame, "END — Y:Approve  N:Reject  S:Skip  R:Replay  Q:Quit",
+                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                cv2.imshow("BSQAv2 - Review Mode", end_frame)
             while True:
                 key = cv2.waitKey(0) & 0xFF
                 if key == ord('y'): return 'approve'
@@ -86,23 +92,25 @@ def play_clip(cap, landmarker, clip_path: Path, clip_idx: int, total: int) -> st
                              (0, 0, 255), 2)
             for lm in landmarks:
                 if lm.visibility > 0.3:
-                    cv2.circle(frame, (int(lm.x*w), int(lm.y*h)), 3, (0,255,0), -1)
+                    cv2.circle(frame, (int(lm.x*w), int(lm.y*h)), 3, (0, 255, 0), -1)
 
         # HUD
         current_sec = frame_idx / fps
         stroke_type = clip_path.parent.name
+        mode_label = "[IN-PLACE]" if in_place else ""
 
         cv2.putText(frame, f"Frame: {frame_idx}/{total_frames}  |  {current_sec:.2f}s",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
-        cv2.putText(frame, f"[{clip_idx+1}/{total}] {clip_path.name}  ({stroke_type})",
-                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2)
-        cv2.putText(frame, "Y:Approve  N:Reject  S:Skip  R:Replay  Q:Quit",
-                    (10, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 2)
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(frame, f"[{clip_idx+1}/{total}] {clip_path.name}  ({stroke_type}) {mode_label}",
+                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(frame, "Y:Approve  N:Reject  S:Skip  R:Replay  SPACE:Pause  Q:Quit",
+                    (10, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
 
         cv2.imshow("BSQAv2 - Review Mode", frame)
+        last_frame = frame.copy()
 
         key = cv2.waitKey(30) & 0xFF  # ~30fps playback
-        if key == ord('y'): action = 'approve'
+        if key == ord('y'):   action = 'approve'
         elif key == ord('n'): action = 'reject'
         elif key == ord('s'): action = 'skip'
         elif key == ord('r'): action = 'replay'
@@ -112,14 +120,16 @@ def play_clip(cap, landmarker, clip_path: Path, clip_idx: int, total: int) -> st
     return action or 'skip'
 
 
-def review_folder(folder: str, approved_dir: str, rejected_dir: str):
+def review_folder(folder: str, approved_dir: str, rejected_dir: str, in_place: bool):
     folder = Path(folder)
     stroke_type = folder.name
 
-    approved_out = Path(approved_dir) / stroke_type
     rejected_out = Path(rejected_dir) / stroke_type
-    approved_out.mkdir(parents=True, exist_ok=True)
     rejected_out.mkdir(parents=True, exist_ok=True)
+
+    if not in_place:
+        approved_out = Path(approved_dir) / stroke_type
+        approved_out.mkdir(parents=True, exist_ok=True)
 
     clips = sorted(folder.glob("*.mp4"))
     if not clips:
@@ -133,14 +143,26 @@ def review_folder(folder: str, approved_dir: str, rejected_dir: str):
     pending = [c for c in clips if c.name not in reviewed]
 
     print(f"\n{'='*50}")
-    print(f"Folder: {folder}")
-    print(f"Total: {len(clips)} | Reviewed: {len(reviewed)} | Pending: {len(pending)}")
-    print(f"Controls: Y=Approve  N=Reject  S=Skip  R=Replay  SPACE=Pause  Q=Quit")
+    print(f"Folder    : {folder}")
+    print(f"Mode      : {'IN-PLACE (Y=keep, N=reject)' if in_place else 'MOVE (Y→approved, N→rejected)'}")
+    print(f"Total     : {len(clips)} | Reviewed: {len(reviewed)} | Pending: {len(pending)}")
+    print(f"Controls  : Y=Approve  N=Reject  S=Skip  R=Replay  SPACE=Pause  Q=Quit")
     print(f"{'='*50}\n")
 
-    # Setup MediaPipe
-    # model_path = Path("BSQAv2/pose_landmarker_full.task")
-    model_path = Path(__file__).resolve().parent / "pose_landmarker_full.task"
+    if not pending:
+        print("Tất cả clips đã được review rồi.")
+        return
+
+    # Setup MediaPipe — dùng __file__ để path luôn đúng bất kể chạy từ đâu
+    model_path = Path(__file__).resolve().parent.parent / "pose_landmarker_full.task"
+    if not model_path.exists():
+        # Fallback: tìm trong thư mục hiện tại
+        model_path = Path("pose_landmarker_full.task")
+    if not model_path.exists():
+        print(f"⚠ Không tìm thấy model: {model_path}")
+        print("   Đặt pose_landmarker_full.task vào thư mục gốc BSQAv2/")
+        return
+
     base_options = mp_python.BaseOptions(model_asset_path=str(model_path))
     options = vision.PoseLandmarkerOptions(
         base_options=base_options,
@@ -148,7 +170,7 @@ def review_folder(folder: str, approved_dir: str, rejected_dir: str):
         num_poses=1,
         min_pose_detection_confidence=0.3,
         min_pose_presence_confidence=0.3,
-        min_tracking_confidence=0.3
+        min_tracking_confidence=0.3,
     )
 
     approved_count = rejected_count = skipped_count = 0
@@ -166,32 +188,38 @@ def review_folder(folder: str, approved_dir: str, rejected_dir: str):
 
             while True:  # replay loop
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                action = play_clip(cap, landmarker, clip_path, i, len(pending))
-
+                action = play_clip(cap, landmarker, clip_path, i, len(pending), in_place)
                 if action == 'replay':
-                    continue  # rewind và play lại
+                    continue
                 break
 
             cap.release()
 
             if action == 'approve':
-                shutil.move(str(clip_path), approved_out / clip_path.name)
-                print(f"  ✓ Approved → {approved_out.name}/{clip_path.name}")
+                if in_place:
+                    # Giữ nguyên tại chỗ, không move gì cả
+                    print(f"  ✓ Kept   : {clip_path.name}")
+                else:
+                    shutil.move(str(clip_path), approved_out / clip_path.name)
+                    print(f"  ✓ Approved → {approved_out.name}/{clip_path.name}")
                 approved_count += 1
                 reviewed.add(clip_path.name)
+
             elif action == 'reject':
                 shutil.move(str(clip_path), rejected_out / clip_path.name)
                 print(f"  ✗ Rejected → {rejected_out.name}/{clip_path.name}")
                 rejected_count += 1
                 reviewed.add(clip_path.name)
+
             elif action == 'skip':
-                print(f"  ~ Skipped: {clip_path.name}")
+                print(f"  ~ Skipped : {clip_path.name}")
                 skipped_count += 1
+
             elif action == 'quit':
                 print("\nĐã lưu tiến độ. Chạy lại để tiếp tục.")
                 break
 
-            # Lưu progress sau mỗi action
+            # Lưu progress sau mỗi action (kể cả skip)
             progress[folder_key] = list(reviewed)
             save_progress(progress)
 
@@ -201,20 +229,34 @@ def review_folder(folder: str, approved_dir: str, rejected_dir: str):
 
     print(f"\n{'='*50}")
     print(f"Session kết thúc:")
-    print(f"  Approved : {approved_count}")
-    print(f"  Rejected : {rejected_count}")
-    print(f"  Skipped  : {skipped_count}")
+    print(f"  Approved / Kept : {approved_count}")
+    print(f"  Rejected        : {rejected_count}")
+    print(f"  Skipped         : {skipped_count}")
     print(f"{'='*50}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Batch review flagged clips")
+    parser = argparse.ArgumentParser(
+        description="Batch clip review tool with skeleton overlay",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Review clips vừa trim (in-place: Y=giữ, N=loại)
+  python tools/review_clips.py --folder data/clips/smash --in-place --rejected-dir data/rejected
+
+  # Review flagged clips (move: Y=approve vào clips/, N=loại)
+  python tools/review_clips.py --folder data/flagged/smash --approved-dir data/clips --rejected-dir data/rejected
+        """
+    )
     parser.add_argument("--folder", required=True,
-                        help="Folder chứa clips cần review (vd: data/flagged/smash)")
+                        help="Folder chứa clips cần review")
     parser.add_argument("--approved-dir", default="data/clips",
-                        help="Output dir cho approved clips")
+                        help="Output dir khi bấm Y (chỉ dùng khi không có --in-place)")
     parser.add_argument("--rejected-dir", default="data/rejected",
-                        help="Output dir cho rejected clips")
+                        help="Output dir khi bấm N")
+    parser.add_argument("--in-place", action="store_true",
+                        help="Y giữ nguyên file tại chỗ, chỉ N mới move sang rejected. "
+                             "Dùng khi review clips đã nằm trong data/clips/")
     args = parser.parse_args()
 
-    review_folder(args.folder, args.approved_dir, args.rejected_dir)
+    review_folder(args.folder, args.approved_dir, args.rejected_dir, args.in_place)
