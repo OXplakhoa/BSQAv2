@@ -52,12 +52,22 @@ def trim_clips(
     failed = 0
 
     for row in rows:
+        if not row.get('video_url') or not row.get('stroke_type'):
+            continue
+            
         url = row['video_url'].strip()
         stroke_type = row['stroke_type'].strip().lower()
         start_time = row['start_time'].strip()
         end_time = row['end_time'].strip()
 
         # Find the raw video file
+        import sys
+        
+        # Thêm thư mục gốc BSQAv2 vào path để Python luôn tìm thấy folder tools/
+        project_root = Path(__file__).resolve().parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.append(str(project_root))
+            
         from tools.download_clips import extract_video_id
         try:
             vid_id = extract_video_id(url)

@@ -5,7 +5,14 @@ from mediapipe.tasks.python import vision
 from pathlib import Path
 
 # Cấu hình file bạn muốn "Khám nghiệm"
-VIDEO_PATH = r"BSQAv2\data\flagged\smash\iuuLXZ4g8bc_038.mp4" 
+VIDEO_PATH = r"BSQAv2\data\clips\net_shot\iuuLXZ4g8bc_034.mp4"
+
+
+# BSQAv2\data\clips\clear\iuuLXZ4g8bc_052.mp4 X
+# BSQAv2\data\clips\clear\iuuLXZ4g8bc_054.mp4 X
+# BSQAv2\data\clips\drop_shot\iuuLXZ4g8bc_020.mp4 Y
+# BSQAv2\data\clips\net_shot\iuuLXZ4g8bc_034.mp4 X 
+# BSQAv2\data\clips\smash\iuuLXZ4g8bc_038.mp4 Y
 
 # Định nghĩa các đường nối của MediaPipe (33 điểm gốc)
 POSE_CONNECTIONS = [
