@@ -175,12 +175,12 @@ def quality_control(
     # Real athletic movement (lunge, jump smash) moves ALL joints together;
     # tracker errors make 1-2 joints teleport while the rest stay coherent.
     #
-    # EXCLUDED from check: limb extremities that naturally move much faster
-    # than the torso during badminton strokes (wrists swing racket, ankles
-    # lunge, knees/elbows follow through).
+    # EXCLUDED from check: only wrists (racket swing) and ankles (fast
+    # footwork) — these naturally move much faster than the torso.
+    # Elbows and knees are kept: if they teleport, it's likely tracker error.
     OUTLIER_RATIO = 3.0   # joint must move >3x the median body displacement
     MIN_ABSOLUTE_PX = 150 # ignore small movements even if ratio is high
-    JUMP_EXCLUDE_JOINTS = {7, 8, 9, 10, 13, 14, 15, 16}  # elbows, wrists, knees, ankles
+    JUMP_EXCLUDE_JOINTS = {9, 10, 15, 16}  # wrists and ankles only
     for t in range(1, T):
         diff = np.linalg.norm(keypoints[t] - keypoints[t-1], axis=1)
         valid = (keypoints[t].sum(axis=1) != 0) & (keypoints[t-1].sum(axis=1) != 0)
