@@ -5,7 +5,7 @@ from mediapipe.tasks.python import vision
 from pathlib import Path
 
 # Cấu hình file bạn muốn "Khám nghiệm"
-VIDEO_PATH = r"BSQAv2\data\clips\net_shot\iuuLXZ4g8bc_034.mp4"
+VIDEO_PATH = r"data\clips\net_shot\iuuLXZ4g8bc_114.mp4"
 
 
 # BSQAv2\data\clips\clear\iuuLXZ4g8bc_052.mp4 X
@@ -23,7 +23,7 @@ POSE_CONNECTIONS = [
     (28,30), (29,31), (30,32), (27,31), (28,32)
 ]
 
-MODEL_PATH = Path("BSQAv2/pose_landmarker_full.task")
+MODEL_PATH = Path(__file__).parent / "pose_landmarker_full.task"
 if not MODEL_PATH.exists():
     import urllib.request
     print("Đang tải AI Model...")
@@ -38,6 +38,11 @@ options = vision.PoseLandmarkerOptions(
     min_pose_presence_confidence=0.3,
     min_tracking_confidence=0.3
 )
+if not Path(VIDEO_PATH).exists():
+    print(f"\n[ERROR] Khong tim thay video: {VIDEO_PATH}")
+    print("Hay kiem tra lai bien VIDEO_PATH (Dong 8). Video nay co the da bi doi ten, xoa, hoac sai thu muc root.\n")
+    import sys
+    sys.exit(1)
 
 cap = cv2.VideoCapture(VIDEO_PATH)
 fps = int(cap.get(cv2.CAP_PROP_FPS) or 30)
