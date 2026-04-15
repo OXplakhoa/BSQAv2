@@ -5,9 +5,9 @@ from mediapipe.tasks.python import vision
 from pathlib import Path
 
 # Cấu hình file bạn muốn "Khám nghiệm"
-VIDEO_PATH = r"data\clips\net_shot\iuuLXZ4g8bc_114.mp4"
+VIDEO_PATH = r"F:\Downloads\Badminton\【★】【Nice Angle 4K60FPS】Viktor Axelsen  vs  Kodai Naraoka BWF World Tour Finals 2023 - dingding badminton丁丁羽毛球 (1080p, h264).mp4"
 
-
+# "F:\Downloads\Badminton\【★】【Nice Angle 4K60FPS】Viktor Axelsen  vs  Kodai Naraoka BWF World Tour Finals 2023 - dingding badminton丁丁羽毛球 (1080p, h264).mp4"
 # BSQAv2\data\clips\clear\iuuLXZ4g8bc_052.mp4 X
 # BSQAv2\data\clips\clear\iuuLXZ4g8bc_054.mp4 X
 # BSQAv2\data\clips\drop_shot\iuuLXZ4g8bc_020.mp4 Y

@@ -5,9 +5,9 @@ __pycache__/
 
 # Data (too large for git)
 data/kaggle/
-data/youtube/
+# data/youtube/
 data/flagged/
-clips/
+# clips/
 raw_videos/
 *.task
 
