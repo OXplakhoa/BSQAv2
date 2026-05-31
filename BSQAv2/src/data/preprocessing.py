@@ -5,6 +5,7 @@ Preprocessing functions for skeleton data
 - Pad/truncate to fixed length
 """
 import numpy as np
+import torch
 from ..config import (
     HIP_LEFT_IDX, HIP_RIGHT_IDX,
     SHOULDER_LEFT_IDX, SHOULDER_RIGHT_IDX,
@@ -95,8 +96,9 @@ def interpolate_missing(keypoints: np.ndarray, missing_val: float = 0.0) -> np.n
 
 def pad_or_truncate(keypoints: np.ndarray, target_length: int) -> np.ndarray:
     """
-    Pad (with zeros) or truncate sequence to target length.
-    Uses center-cropping for truncation.
+    Pad or truncate sequence to target length.
+    Uses center-cropping for truncation, edge-replication for padding
+    (avoids zero frames that confuse the model).
 
     Args:
         keypoints: (T, 17, 2) array
@@ -113,20 +115,20 @@ def pad_or_truncate(keypoints: np.ndarray, target_length: int) -> np.ndarray:
         start = (T - target_length) // 2
         return keypoints[start:start + target_length]
     else:
+        # Repeat first and last frames instead of zeros
         pad_total = target_length - T
         pad_before = pad_total // 2
         pad_after = pad_total - pad_before
-        return np.pad(
-            keypoints,
-            ((pad_before, pad_after), (0, 0), (0, 0)),
-            mode='constant',
-            constant_values=0
-        )
+        # Use first frame for front padding, last frame for back padding
+        front_pad = np.repeat(keypoints[:1], pad_before, axis=0) if pad_before > 0 else np.zeros((0, *keypoints.shape[1:]))
+        back_pad = np.repeat(keypoints[-1:], pad_after, axis=0) if pad_after > 0 else np.zeros((0, *keypoints.shape[1:]))
+        return np.concatenate([front_pad, keypoints, back_pad], axis=0)
 
 
 def preprocess_sequence(keypoints: np.ndarray, target_length: int = 64) -> np.ndarray:
     """
     Full preprocessing pipeline:
+    0. Replace NaN/inf with 0.0 (missing marker for interpolation)
     1. Interpolate missing keypoints
     2. Normalize (hip-centered, torso-scaled)
     3. Pad/truncate to target length
@@ -138,7 +140,46 @@ def preprocess_sequence(keypoints: np.ndarray, target_length: int = 64) -> np.nd
     Returns:
         (target_length, 17, 2) preprocessed keypoints
     """
+    keypoints = np.nan_to_num(keypoints, nan=0.0, posinf=0.0, neginf=0.0)
     keypoints = interpolate_missing(keypoints)
     keypoints = normalize_skeleton(keypoints)
     keypoints = pad_or_truncate(keypoints, target_length)
     return keypoints
+
+
+def compute_velocity(keypoints: np.ndarray) -> np.ndarray:
+    """
+    Add per-joint velocity channels via frame-to-frame finite difference.
+
+    Args:
+        keypoints: (T, 17, 2) position coordinates
+
+    Returns:
+        (T, 17, 4) concatenated [position, velocity]
+    """
+    T, N, C = keypoints.shape
+    vel = np.zeros_like(keypoints)
+    vel[1:] = keypoints[1:] - keypoints[:-1]
+    return np.concatenate([keypoints, vel], axis=-1)
+
+
+def add_velocity_torch(x: torch.Tensor, normalize: bool = False) -> torch.Tensor:
+    """
+    Append per-joint velocity to input tensor (GPU-compatible).
+
+    Args:
+        x: (B, T, N, 2) position coordinates
+        normalize: DISABLED by default — per-batch normalization destroys
+                   the speed magnitude signal critical for stroke classification
+                   (smash=fast, net_shot=slow).
+
+    Returns:
+        (B, T, N, 4) concatenated [position, velocity]
+    """
+    vel = x[:, 1:] - x[:, :-1]
+    vel = torch.nn.functional.pad(vel, (0, 0, 0, 0, 1, 0, 0, 0))
+    if normalize:
+        vel_std = vel.std(dim=(1, 2, 3), keepdim=True) + 1e-8
+        pos_std = x.std(dim=(1, 2, 3), keepdim=True) + 1e-8
+        vel = vel * (pos_std / vel_std)
+    return torch.cat([x, vel], dim=-1)

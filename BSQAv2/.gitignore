@@ -5,19 +5,44 @@ __pycache__/
 
 # Data (too large for git)
 data/kaggle/
-# data/youtube/
+data/youtube/
+data/friend_data/
+data/motion-data-for-badminton-shots/
+data/arxiv/
+data/arxiv_video/
+data/badminton/
+data/badminton_video/
+data/mappings/
 data/flagged/
-# clips/
+data/*.csv
+data/*.json
+data/*.rar
+clips/
 raw_videos/
 *.task
+*.rar
+*.zip
+*.tar.gz
+*.log
 
 # Model outputs
 checkpoints/
 runs/
 results/
 
+# Streamlit demo generated artifacts (keep source-controlled manifests only)
+webapp/artifacts/pipeline_runs/**
+webapp/artifacts/models/**
+webapp/artifacts/metrics/**
+webapp/artifacts/figures/**
+webapp/artifacts/feature_space/**
+webapp/artifacts/uploads/**
+webapp/artifacts/curated/candidate_scan_*.json
+!webapp/artifacts/**/.gitkeep
+
 # Environment
 .venv/
+.venv312/
 *.egg-info/
 
 # IDE

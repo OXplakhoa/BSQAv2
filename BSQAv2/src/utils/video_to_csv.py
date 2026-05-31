@@ -1,15 +1,16 @@
 """
-MediaPipe Pose → COCO-17 CSV extraction pipeline.
+MediaPipe Pose -> COCO-17 CSV extraction pipeline.
 Processes video clips and outputs skeleton CSV files matching v1 schema.
 Includes quality control: confidence filtering, jump detection, missing joint checks.
 Flagged clips are moved to data/flagged/ for manual review.
 """
 import argparse
 import csv
+import json
 import shutil
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 try:
     import cv2
@@ -31,34 +32,34 @@ def ensure_model():
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
 
-# ── MediaPipe 33 → COCO-17 mapping ──────────────────────────────────────────
+# -- MediaPipe 33 -> COCO-17 mapping ------------------------------------------
 # MediaPipe has 33 landmarks, COCO uses 17 keypoints.
 # This maps MediaPipe landmark indices to COCO-17 indices.
 MEDIAPIPE_TO_COCO17 = {
-    0: 0,   # nose → nose
-    2: 1,   # left_eye_inner → left_eye (approx)
-    5: 2,   # right_eye_inner → right_eye (approx)
-    7: 3,   # left_ear → left_ear
-    8: 4,   # right_ear → right_ear
-    11: 5,  # left_shoulder → left_shoulder
-    12: 6,  # right_shoulder → right_shoulder
-    13: 7,  # left_elbow → left_elbow
-    14: 8,  # right_elbow → right_elbow
-    15: 9,  # left_wrist → left_wrist
-    16: 10, # right_wrist → right_wrist
-    23: 11, # left_hip → left_hip
-    24: 12, # right_hip → right_hip
-    25: 13, # left_knee → left_knee
-    26: 14, # right_knee → right_knee
-    27: 15, # left_ankle → left_ankle
-    28: 16, # right_ankle → right_ankle
+    0: 0,   # nose -> nose
+    2: 1,   # left_eye_inner -> left_eye (approx)
+    5: 2,   # right_eye_inner -> right_eye (approx)
+    7: 3,   # left_ear -> left_ear
+    8: 4,   # right_ear -> right_ear
+    11: 5,  # left_shoulder -> left_shoulder
+    12: 6,  # right_shoulder -> right_shoulder
+    13: 7,  # left_elbow -> left_elbow
+    14: 8,  # right_elbow -> right_elbow
+    15: 9,  # left_wrist -> left_wrist
+    16: 10, # right_wrist -> right_wrist
+    23: 11, # left_hip -> left_hip
+    24: 12, # right_hip -> right_hip
+    25: 13, # left_knee -> left_knee
+    26: 14, # right_knee -> right_knee
+    27: 15, # left_ankle -> left_ankle
+    28: 16, # right_ankle -> right_ankle
 }
 
 # Critical joints for badminton
 # Note: Only shoulders are truly "critical" for QC. Wrists/elbows are
 # frequently occluded or blurred in broadcast footage but still get
 # reasonable estimates. We keep them for extraction but don't gate on them.
-CRITICAL_COCO_INDICES = [5, 6]  # shoulders only — stable even in fast motion
+CRITICAL_COCO_INDICES = [5, 6]  # shoulders only ? stable even in fast motion
 NUM_COCO_KEYPOINTS = 17
 CONFIDENCE_THRESHOLD = 0.3      # lowered: broadcast video has more blur
 JUMP_THRESHOLD_PX = 200         # raised: jump smash can exceed 150px/frame
@@ -147,70 +148,118 @@ def quality_control(
     keypoints: np.ndarray,
     visibilities: np.ndarray,
     video_name: str = "",
-) -> Tuple[bool, List[str]]:
+) -> Tuple[bool, List[str], Dict[str, Any]]:
     """
     Run quality control checks on extracted keypoints.
 
     Returns:
-        (passed, reasons): True if passed, list of failure reasons
+        (passed, reasons, stats): passed flag, failure reasons, structured QC stats dict
     """
     reasons = []
     T = keypoints.shape[0]
 
+    # -- Compute QC stats (always, regardless of pass/fail) --
+    stats: Dict[str, Any] = {
+        "video_name": video_name,
+        "frame_count": T,
+        "passed": True,  # will update
+        "reasons": [],
+    }
+
+    # Per-joint mean visibility
+    per_joint_mean_vis = {}
+    per_joint_visible_ratio = {}
+    for j in range(NUM_COCO_KEYPOINTS):
+        vis_j = visibilities[:, j]
+        per_joint_mean_vis[f"kpt_{j}_mean_vis"] = round(float(np.mean(vis_j)), 4)
+        per_joint_visible_ratio[f"kpt_{j}_vis_ratio"] = round(
+            float(np.sum(vis_j >= CONFIDENCE_THRESHOLD) / T), 4
+        )
+    stats.update(per_joint_mean_vis)
+    stats.update(per_joint_visible_ratio)
+
+    # Overall missing joint ratio
+    total_joints = T * NUM_COCO_KEYPOINTS
+    missing = int(np.sum(keypoints.sum(axis=2) == 0))
+    missing_ratio = missing / total_joints
+    stats["missing_joint_ratio"] = round(missing_ratio, 4)
+    stats["missing_joint_count"] = missing
+
+    # Frame-to-frame displacement stats (per joint, aggregated)
+    if T > 1:
+        all_diffs = []
+        max_disp = 0.0
+        jump_count = 0
+        for t in range(1, T):
+            diff = np.linalg.norm(keypoints[t] - keypoints[t-1], axis=1)
+            valid = (keypoints[t].sum(axis=1) != 0) & (keypoints[t-1].sum(axis=1) != 0)
+            if valid.sum() > 0:
+                all_diffs.extend(diff[valid].tolist())
+                max_disp = max(max_disp, float(np.max(diff[valid])))
+                # Count jumps > JUMP_THRESHOLD_PX
+                jump_count += int(np.sum(diff[valid] > JUMP_THRESHOLD_PX))
+        stats["mean_frame_disp"] = round(float(np.mean(all_diffs)), 2) if all_diffs else 0.0
+        stats["max_frame_disp"] = round(max_disp, 2)
+        stats["jump_count"] = jump_count
+    else:
+        stats["mean_frame_disp"] = 0.0
+        stats["max_frame_disp"] = 0.0
+        stats["jump_count"] = 0
+
+    # -- QC checks --
     if T < 5:
         reasons.append(f"Too few frames: {T}")
-        return False, reasons
+        stats["passed"] = False
+        stats["reasons"] = reasons
+        return False, reasons, stats
 
     # Check 1: Critical joint visibility across frames
+    critical_vis_ratios = {}
     for coco_idx in CRITICAL_COCO_INDICES:
         visible_frames = np.sum(visibilities[:, coco_idx] >= CONFIDENCE_THRESHOLD)
         ratio = visible_frames / T
+        critical_vis_ratios[f"critical_kpt_{coco_idx}_vis_ratio"] = round(ratio, 4)
         if ratio < 0.5:
             reasons.append(
                 f"Critical joint {coco_idx} visible only {ratio:.0%} of frames"
             )
+    stats.update(critical_vis_ratios)
 
-    # Check 2: Relative jump detection — flag only when individual joints
-    # deviate significantly from the body's median movement.
-    # Real athletic movement (lunge, jump smash) moves ALL joints together;
-    # tracker errors make 1-2 joints teleport while the rest stay coherent.
-    #
-    # EXCLUDED from check: only wrists (racket swing) and ankles (fast
-    # footwork) — these naturally move much faster than the torso.
-    # Elbows and knees are kept: if they teleport, it's likely tracker error.
-    OUTLIER_RATIO = 3.0   # joint must move >3x the median body displacement
-    MIN_ABSOLUTE_PX = 150 # ignore small movements even if ratio is high
-    JUMP_EXCLUDE_JOINTS = {9, 10, 15, 16}  # wrists and ankles only
+    # Check 2: Relative jump detection
+    OUTLIER_RATIO = 3.0
+    MIN_ABSOLUTE_PX = 150
+    JUMP_EXCLUDE_JOINTS = {9, 10, 15, 16}
+    outlier_jump_count = 0
     for t in range(1, T):
         diff = np.linalg.norm(keypoints[t] - keypoints[t-1], axis=1)
         valid = (keypoints[t].sum(axis=1) != 0) & (keypoints[t-1].sum(axis=1) != 0)
         if valid.sum() < 3:
-            continue  # not enough joints to judge
+            continue
 
         valid_diffs = diff[valid]
         median_disp = np.median(valid_diffs)
 
         for j_idx in np.where(valid)[0]:
             if j_idx in JUMP_EXCLUDE_JOINTS:
-                continue  # skip limb extremities
+                continue
             joint_disp = diff[j_idx]
-            # Flag only if: (a) large absolute move AND (b) outlier vs body median
             if joint_disp > MIN_ABSOLUTE_PX and median_disp > 0 and (joint_disp / median_disp) > OUTLIER_RATIO:
+                outlier_jump_count += 1
                 reasons.append(
                     f"Outlier joint {j_idx} at frame {t}: "
                     f"{joint_disp:.0f}px vs median {median_disp:.0f}px "
                     f"(ratio {joint_disp/median_disp:.1f}x)"
                 )
+    stats["outlier_jump_count"] = outlier_jump_count
 
     # Check 3: Overall missing joint ratio
-    total_joints = T * NUM_COCO_KEYPOINTS
-    missing = np.sum(keypoints.sum(axis=2) == 0)
-    missing_ratio = missing / total_joints
     if missing_ratio > MISSING_JOINT_RATIO_LIMIT:
         reasons.append(f"Missing joint ratio: {missing_ratio:.0%} (limit: {MISSING_JOINT_RATIO_LIMIT:.0%})")
 
     passed = len(reasons) == 0
-    return passed, reasons
+    stats["passed"] = passed
+    stats["reasons"] = reasons
+    return passed, reasons, stats
 
 
 def keypoints_to_csv_rows(
@@ -244,16 +293,32 @@ def get_csv_header() -> List[str]:
     return header
 
 
+def load_mapping(mapping_path: Optional[str]) -> Dict[str, str]:
+    """Load folder-name -> stroke-type mapping from JSON file."""
+    if mapping_path is None:
+        return {}
+    with open(mapping_path, 'r') as f:
+        raw = json.load(f)
+    # Normalize keys: strip, lowercase; skip metadata keys starting with _
+    return {k.strip().lower(): v.strip().lower()
+            for k, v in raw.items() if not k.startswith('_')}
+
+
 def process_clips_directory(
     clips_dir: str,
     output_dir: str,
     flagged_dir: str = "data/flagged",
     start_id: int = 1000,
     verify: bool = False,
-) -> None:
+    stats_output: Optional[str] = None,
+    mapping: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
     Process all video clips in a directory structure:
-      clips_dir/{stroke_type}/*.mp4 → output_dir/{stroke_type}_v2.csv
+      clips_dir/{stroke_type}/*.mp4 -> output_dir/{stroke_type}_v2.csv
+
+    If --mapping is provided, folder names are translated to stroke types
+    using the JSON mapping file. Unmapped folders are skipped.
 
     Flagged clips (QC failures) are copied to flagged_dir with a log.
 
@@ -263,6 +328,11 @@ def process_clips_directory(
         flagged_dir: Directory for QC-failed clips
         start_id: Starting sample ID for new data
         verify: If True, print summary stats per clip
+        stats_output: If set, path to save structured QC stats JSON
+        mapping: Optional path to JSON file mapping folder->stroke_type
+
+    Returns:
+        List of per-clip QC stats dicts
     """
     clips_dir = Path(clips_dir)
     output_dir = Path(output_dir)
@@ -270,9 +340,18 @@ def process_clips_directory(
     output_dir.mkdir(parents=True, exist_ok=True)
     flagged_dir.mkdir(parents=True, exist_ok=True)
 
+    folder_to_stroke = load_mapping(mapping)
+    use_mapping = len(folder_to_stroke) > 0
+    if use_mapping:
+        print(f"Loaded mapping: {len(folder_to_stroke)} folder->stroke entries")
+        valid_strokes = set(folder_to_stroke.values())
+        print(f"  Target stroke types: {sorted(valid_strokes)}")
+
     current_id = start_id
     total_passed = 0
     total_flagged = 0
+    total_skipped = 0
+    all_stats: List[Dict[str, Any]] = []
 
     # Open a flagged log
     flag_log_path = flagged_dir / "qc_log.txt"
@@ -282,7 +361,17 @@ def process_clips_directory(
         if not stroke_dir.is_dir():
             continue
 
-        stroke_type = stroke_dir.name.lower()
+        raw_folder_name = stroke_dir.name
+        if use_mapping:
+            folder_key = raw_folder_name.strip().lower()
+            if folder_key not in folder_to_stroke:
+                print(f"  Skipping unmapped: {raw_folder_name}")
+                total_skipped += 1
+                continue
+            stroke_type = folder_to_stroke[folder_key]
+        else:
+            stroke_type = raw_folder_name.lower()
+
         video_files = sorted(
             [f for f in stroke_dir.iterdir() if f.suffix.lower() in ('.mp4', '.avi', '.mov', '.mkv')]
         )
@@ -290,7 +379,8 @@ def process_clips_directory(
         if not video_files:
             continue
 
-        print(f"\n── Processing {stroke_type}: {len(video_files)} clips ──")
+        label = f"{raw_folder_name} -> {stroke_type}" if use_mapping else stroke_type
+        print(f"\n-- [{label}] {len(video_files)} clips --")
 
         csv_path = output_dir / f"{stroke_type}_v2.csv"
         all_rows = []
@@ -305,19 +395,23 @@ def process_clips_directory(
             print(f"  Appending to existing CSV ({len(all_rows)} rows, next_id={current_id})")
 
         for vf in video_files:
-            print(f"  → {vf.name}...", end=" ", flush=True)
+            print(f"  -> {vf.name}...", end=" ", flush=True)
             try:
                 keypoints, visibilities, fps = extract_keypoints_from_video(str(vf))
             except Exception as e:
                 print(f"ERROR: {e}")
                 continue
 
-            passed, reasons = quality_control(keypoints, visibilities, vf.name)
+            passed, reasons, stats = quality_control(keypoints, visibilities, vf.name)
+            stats["sample_id"] = current_id if passed else -1
+            stats["stroke_type"] = stroke_type
+            stats["fps"] = fps
+            all_stats.append(stats)
 
             if passed:
                 rows = keypoints_to_csv_rows(keypoints, current_id, stroke_type)
                 all_rows.extend(rows)
-                print(f"✓ ({keypoints.shape[0]} frames, id={current_id})")
+                print(f"OK ({keypoints.shape[0]} frames, id={current_id})")
                 current_id += 1
                 total_passed += 1
             else:
@@ -328,7 +422,7 @@ def process_clips_directory(
 
                 reason_str = "; ".join(reasons)
                 flag_log.write(f"{vf.name}: {reason_str}\n")
-                print(f"⚠ FLAGGED ({reason_str})")
+                print(f"!! FLAGGED ({reason_str})")
                 total_flagged += 1
 
         # Write CSV
@@ -342,10 +436,53 @@ def process_clips_directory(
 
     flag_log.close()
 
+    # -- Save structured QC stats --
+    if stats_output and all_stats:
+        stats_path = Path(stats_output)
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(stats_path, 'w') as f:
+            json.dump(all_stats, f, indent=2)
+        print(f"\n  QC stats saved to {stats_path}")
+
+    # -- Print aggregate summary --
     print(f"\n{'='*50}")
     print(f"  Passed QC: {total_passed}")
     print(f"  Flagged:   {total_flagged} (see {flag_log_path})")
     print(f"{'='*50}")
+
+    # Per-stroke summary
+    if all_stats:
+        print(f"\n{'-'*60}")
+        print(f"  Per-Stroke QC Summary")
+        print(f"{'-'*60}")
+        from collections import defaultdict
+        stroke_stats = defaultdict(lambda: {"total": 0, "passed": 0, "flagged": 0,
+                                            "mean_vis": [], "missing_ratio": [],
+                                            "mean_disp": [], "jump_count": []})
+        for s in all_stats:
+            st = s["stroke_type"]
+            stroke_stats[st]["total"] += 1
+            if s["passed"]:
+                stroke_stats[st]["passed"] += 1
+            else:
+                stroke_stats[st]["flagged"] += 1
+            stroke_stats[st]["mean_vis"].append(s.get("kpt_9_mean_vis", 0))  # right wrist
+            stroke_stats[st]["missing_ratio"].append(s["missing_joint_ratio"])
+            stroke_stats[st]["mean_disp"].append(s["mean_frame_disp"])
+            stroke_stats[st]["jump_count"].append(s["jump_count"])
+
+        for st in sorted(stroke_stats.keys()):
+            ss = stroke_stats[st]
+            pass_rate = ss["passed"] / ss["total"] * 100 if ss["total"] else 0
+            avg_wrist_vis = np.mean(ss["mean_vis"]) if ss["mean_vis"] else 0
+            avg_missing = np.mean(ss["missing_ratio"]) * 100 if ss["missing_ratio"] else 0
+            avg_disp = np.mean(ss["mean_disp"]) if ss["mean_disp"] else 0
+            avg_jumps = np.mean(ss["jump_count"]) if ss["jump_count"] else 0
+            print(f"  {st:<12} | {ss['total']:>4} clips | {pass_rate:5.1f}% pass | "
+                  f"wrist_vis={avg_wrist_vis:.2f} | missing={avg_missing:.1f}% | "
+                  f"mean_disp={avg_disp:.0f}px | jumps={avg_jumps:.1f}")
+
+    return all_stats
 
 
 def parse_args():
@@ -372,6 +509,14 @@ def parse_args():
         "--verify", action="store_true",
         help="Print detailed stats per clip"
     )
+    parser.add_argument(
+        "--stats", type=str, default="data/qc_stats.json",
+        help="Output path for structured QC stats JSON (default: data/qc_stats.json)"
+    )
+    parser.add_argument(
+        "--mapping", type=str, default=None,
+        help="JSON file mapping folder names -> stroke types (for non-standard layouts)"
+    )
     return parser.parse_args()
 
 
@@ -383,4 +528,6 @@ if __name__ == "__main__":
         flagged_dir=args.flagged,
         start_id=args.start_id,
         verify=args.verify,
+        stats_output=args.stats,
+        mapping=args.mapping,
     )

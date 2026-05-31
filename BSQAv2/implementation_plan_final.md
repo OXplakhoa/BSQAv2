@@ -323,6 +323,31 @@ python train.py --model gcn_bilstm_attn --epochs 100 --augment
 
 > **Goal:** Implement DTW + Rule-based quality scoring that runs AFTER classification
 
+**Status update (2026-05-31): ✅ Implemented.**
+
+Implemented files:
+
+```text
+BSQAv2/src/quality/dtw_scorer.py
+BSQAv2/src/quality/rules.py
+BSQAv2/src/quality/hybrid.py
+BSQAv2/tests/test_quality_dtw.py
+BSQAv2/tests/test_quality_rules.py
+BSQAv2/tests/test_quality_hybrid.py
+BSQAv2/tests/test_quality_references.py
+BSQAv2/src/observatory/quality_references.py
+BSQAv2/docs/PHASE4_QUALITY_ASSESSMENT_PLAN.md
+```
+
+Integration:
+
+- `src/observatory/quality_references.py` loads same-stroke DTW references from curated cached PipelineRun artifacts.
+- `src/observatory/pipeline.py` adds `diagnostics["quality_report"]` and `diagnostics["quality_summary"]`.
+- `webapp/pages/9_Custom_Upload.py` shows Technique quality, DTW similarity, best reference match, and rule feedback.
+- DTW references are optional; if none are supplied, the system returns a rule-only report.
+
+Honest limitation: this is a heuristic 2D-pose quality indicator because the project has no expert-labeled quality dataset.
+
 #### [NEW] `BSQAv2/src/quality/dtw_scorer.py`
 - Takes user's skeleton sequence + matched pro references (same stroke type)
 - Computes DTW distance between user and each pro reference
@@ -433,7 +458,7 @@ python -c "from src.models.gcn_bilstm_attn import FullModel; ..."  # Shape test
 python train.py --model gcn_bilstm_attn --epochs 5 --quick-test --fold 0
 
 # Phase 4: Quality scoring
-python -c "from src.quality.hybrid import HybridScorer; ..."  # Unit test
+python -m unittest tests/test_quality_dtw.py tests/test_quality_rules.py tests/test_quality_hybrid.py tests/test_quality_references.py
 
 # Phase 5: Full evaluation
 python evaluate.py --output results/ --all-models --kfold 5

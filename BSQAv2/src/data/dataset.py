@@ -13,7 +13,7 @@ from typing import Tuple, Optional, List
 
 from .preprocessing import preprocess_sequence
 from ..config import (
-    DATA_DIR_KAGGLE, DATA_DIR_YOUTUBE, SEQUENCE_LENGTH,
+    DATA_DIRS, SEQUENCE_LENGTH,
     NUM_KEYPOINTS, COORD_DIM, CLASS_TO_IDX, STROKE_TYPES,
     K_FOLDS, SEED, BATCH_SIZE
 )
@@ -39,7 +39,7 @@ class BadmintonDataset(Dataset):
         self.augment_fn = augment_fn
 
         if data_dirs is None:
-            data_dirs = [DATA_DIR_KAGGLE, DATA_DIR_YOUTUBE]
+            data_dirs = DATA_DIRS
 
         self.samples: List[Tuple[np.ndarray, int]] = []
         self.labels: List[int] = []
@@ -98,6 +98,7 @@ def create_kfold_loaders(
     seed: int = SEED,
     augment_fn: Optional[callable] = None,
     data_dirs: Optional[List[Path]] = None,
+    num_workers: int = 0,
 ) -> List[Tuple[DataLoader, DataLoader]]:
     """
     Create K-Fold stratified cross-validation data loaders.
@@ -134,10 +135,12 @@ def create_kfold_loaders(
         val_subset = Subset(full_dataset, val_indices)
 
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
+            train_dataset, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=torch.cuda.is_available(),
         )
         val_loader = DataLoader(
-            val_subset, batch_size=batch_size, shuffle=False, num_workers=0
+            val_subset, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=torch.cuda.is_available(),
         )
 
         print(f"Fold {fold_idx + 1}/{k_folds}: "
