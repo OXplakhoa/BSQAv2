@@ -392,6 +392,40 @@ Honest limitation: this is a heuristic 2D-pose quality indicator because the pro
 
 > **Goal:** Generate all results needed for your academic report
 
+**Status update (2026-06-01): ✅ Implemented as artifact-based report generator.**
+
+Implemented files:
+
+```text
+BSQAv2/evaluate.py
+BSQAv2/src/evaluation/__init__.py
+BSQAv2/src/evaluation/report.py
+BSQAv2/tests/test_evaluation_report.py
+```
+
+Command:
+
+```bash
+../.venv/Scripts/python.exe evaluate.py --output results/evaluation_report --all-models --kfold 5
+```
+
+Outputs:
+
+```text
+results/evaluation_report/evaluation_summary.json
+results/evaluation_report/evaluation_report.md
+results/evaluation_report/model_comparison.csv
+results/evaluation_report/per_class_metrics.csv
+results/evaluation_report/quality_validation.csv
+results/evaluation_report/model_accuracy_comparison.png
+```
+
+Notes:
+
+- Consolidates existing artifacts; does not retrain models.
+- Includes final DL PRD metrics, local DL checkpoint summary, RF, Decision Tree.
+- Includes Phase 4 quality-score validation using curated references vs degraded variants.
+
 #### [NEW] `BSQAv2/evaluate.py`
 - Runs all models on the test set
 - Generates:
@@ -461,7 +495,7 @@ python train.py --model gcn_bilstm_attn --epochs 5 --quick-test --fold 0
 python -m unittest tests/test_quality_dtw.py tests/test_quality_rules.py tests/test_quality_hybrid.py tests/test_quality_references.py
 
 # Phase 5: Full evaluation
-python evaluate.py --output results/ --all-models --kfold 5
+python evaluate.py --output results/evaluation_report --all-models --kfold 5
 ```
 
 ### Manual Verification

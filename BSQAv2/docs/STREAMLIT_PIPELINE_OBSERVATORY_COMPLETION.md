@@ -109,9 +109,63 @@ Honest framing:
 - Scores should be described as technique-similarity / biomechanical indicators.
 - DTW quality depends on reference-sample quality; current upload path uses the curated reference bank when same-stroke references exist.
 
+## Phase 5 evaluation / ablation report
+
+Phase 5 has now been implemented as a report generator that consolidates existing artifacts instead of retraining models.
+
+Implemented files:
+
+```text
+evaluate.py
+src/evaluation/__init__.py
+src/evaluation/report.py
+tests/test_evaluation_report.py
+```
+
+Command:
+
+```bash
+cd BSQAv2
+../.venv/Scripts/python.exe evaluate.py --output results/evaluation_report --all-models --kfold 5
+```
+
+Generated local artifacts:
+
+```text
+results/evaluation_report/evaluation_summary.json
+results/evaluation_report/evaluation_report.md
+results/evaluation_report/model_comparison.csv
+results/evaluation_report/per_class_metrics.csv
+results/evaluation_report/quality_validation.csv
+results/evaluation_report/model_accuracy_comparison.png
+```
+
+Latest local Phase 5 run:
+
+```text
+Models: 4
+Per-class rows: 5
+Quality validation pairs: 9
+Quality validation positive-drop pass rate: 1.0
+```
+
+Scope:
+
+- model comparison table for final DL, local DL checkpoint summary, RF, Decision Tree,
+- per-class RF vs DL metrics,
+- checkpoint/TensorBoard event inventory,
+- Phase 4 quality validation using curated references vs artificially degraded variants,
+- Markdown/CSV/JSON/PNG report outputs.
+
+Honest framing:
+
+- The script is an artifact consolidator, not a retraining script.
+- It reports final DL PRD metrics separately from the local exploratory checkpoint summary.
+- Generated report files stay under `results/` and are not committed.
+
 ## Automated tests
 
-Current observatory/webapp/quality test command:
+Current observatory/webapp/quality/evaluation test command:
 
 ```bash
 cd BSQAv2
@@ -132,13 +186,14 @@ cd BSQAv2
   tests/test_quality_dtw.py \
   tests/test_quality_rules.py \
   tests/test_quality_hybrid.py \
-  tests/test_quality_references.py
+  tests/test_quality_references.py \
+  tests/test_evaluation_report.py
 ```
 
 Latest result:
 
 ```text
-Ran 69 tests
+Ran 73 tests
 OK
 ```
 
@@ -165,6 +220,7 @@ src/observatory/pose_quality.py
 src/observatory/pipeline.py
 src/observatory/quality_references.py
 src/observatory/upload_pipeline.py
+src/evaluation/report.py
 ```
 
 ### Webapp pages
@@ -198,11 +254,12 @@ webapp/components/skeleton_view.py
 webapp/components/ui.py
 ```
 
-### Tools
+### Tools / CLI
 
 ```text
 tools/scan_curated_candidates.py
 tools/build_curated_manifest.py
+evaluate.py
 ```
 
 ## Important local artifacts
@@ -270,6 +327,7 @@ BSQAv2/docs/STREAMLIT_PIPELINE_OBSERVATORY_COMPLETION.md
 BSQAv2/docs/PHASE4_QUALITY_ASSESSMENT_PLAN.md
 BSQAv2/src/observatory/
 BSQAv2/src/quality/
+BSQAv2/src/evaluation/
 BSQAv2/tests/
 BSQAv2/tools/scan_curated_candidates.py
 BSQAv2/tools/build_curated_manifest.py

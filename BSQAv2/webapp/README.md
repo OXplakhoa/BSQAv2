@@ -87,13 +87,35 @@ Custom Upload now includes a Phase 4 technique-quality estimate:
 
 This is intentionally framed as a heuristic 2D-pose indicator, not expert-labeled coaching truth.
 
-## Test / compile
+## Phase 5 evaluation report
 
-Current webapp/observatory/quality test slice:
+Generate the report bundle from existing artifacts:
 
 ```bash
 cd BSQAv2
-../.venv/Scripts/python.exe -m unittest tests/test_observatory_artifacts.py tests/test_observatory_pipeline.py tests/test_scan_curated_candidates.py tests/test_observatory_dl_inference.py tests/test_build_curated_manifest.py tests/test_webapp_components.py tests/test_deep_learning_viz.py tests/test_data_mining_viz.py tests/test_error_analysis_viz.py tests/test_eval_viz.py tests/test_dataset_viz.py tests/test_robustness_viz.py tests/test_upload_pipeline.py tests/test_quality_dtw.py tests/test_quality_rules.py tests/test_quality_hybrid.py tests/test_quality_references.py
+../.venv/Scripts/python.exe evaluate.py --output results/evaluation_report --all-models --kfold 5
+```
+
+Outputs under ignored `results/evaluation_report/`:
+
+```text
+evaluation_summary.json
+evaluation_report.md
+model_comparison.csv
+per_class_metrics.csv
+quality_validation.csv
+model_accuracy_comparison.png
+```
+
+The generator consolidates artifacts; it does not retrain models.
+
+## Test / compile
+
+Current webapp/observatory/quality/evaluation test slice:
+
+```bash
+cd BSQAv2
+../.venv/Scripts/python.exe -m unittest tests/test_observatory_artifacts.py tests/test_observatory_pipeline.py tests/test_scan_curated_candidates.py tests/test_observatory_dl_inference.py tests/test_build_curated_manifest.py tests/test_webapp_components.py tests/test_deep_learning_viz.py tests/test_data_mining_viz.py tests/test_error_analysis_viz.py tests/test_eval_viz.py tests/test_dataset_viz.py tests/test_robustness_viz.py tests/test_upload_pipeline.py tests/test_quality_dtw.py tests/test_quality_rules.py tests/test_quality_hybrid.py tests/test_quality_references.py tests/test_evaluation_report.py
 ../.venv/Scripts/python.exe -m compileall src/quality src/observatory webapp tests
 ```
 
