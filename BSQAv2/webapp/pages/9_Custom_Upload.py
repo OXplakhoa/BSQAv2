@@ -10,7 +10,7 @@ import streamlit as st
 from components.charts import probability_rows, skeleton_frame_rows
 from components.dm_viz import horizontal_bar_figure
 from components.skeleton_view import skeleton_figure
-from components.ui import explanation_card, metric_row
+from components.ui import explanation_card, inject_design_system, metric_row, render_glossary_footer
 from src.config import STROKE_TYPES
 from src.observatory.artifacts import ArtifactRegistry
 from src.observatory.quality_references import load_quality_reference_bank, reference_bank_summary
@@ -19,19 +19,20 @@ from src.observatory.upload_pipeline import run_uploaded_video_pipeline, save_up
 
 
 st.set_page_config(page_title="Custom Upload", page_icon="📤", layout="wide")
+inject_design_system()
 
 st.sidebar.title("BSQAv2 Observatory")
-st.sidebar.info("Custom Upload runs live MediaPipe extraction. Use Curated pages for the stable defense path.")
-st.sidebar.selectbox("Detail level", ["Simple", "Technical"], key="detail_level")
-st.sidebar.toggle("Guided Presentation Mode", value=True, key="guided_mode")
+st.sidebar.info("Custom Upload chạy MediaPipe trực tiếp. Khi demo quan trọng, dùng Curated pages để ổn định hơn.")
+st.sidebar.selectbox("Mức chi tiết", ["Simple", "Technical"], format_func={"Simple": "Dễ hiểu", "Technical": "Kỹ thuật"}.get, key="detail_level")
+st.sidebar.toggle("Chế độ thuyết trình có hướng dẫn", value=True, key="guided_mode")
 
-st.title("Custom Video Upload")
+st.title("Custom Upload — Tải video của bạn")
 
 explanation_card(
-    "Live pipeline path",
-    "Upload mode saves a temporary video, runs MediaPipe pose extraction, converts to COCO-17, "
-    "runs pose QC and preprocessing, then runs the RF branch and Phase 4 quality scoring. "
-    "DTW uses same-stroke curated references when available; DL inference is optional because CPU execution can be slow.",
+    "Đường đi pipeline trực tiếp",
+    "Upload mode lưu video tạm, chạy MediaPipe pose extraction, chuyển sang COCO-17, "
+    "chạy Pose QC và preprocessing, sau đó chạy nhánh RF và quality scoring Phase 4. "
+    "DTW dùng reference curated cùng loại cú đánh nếu có; DL inference là tùy chọn vì CPU có thể chậm.",
 )
 
 registry = ArtifactRegistry()
@@ -49,26 +50,26 @@ quality_reference_summary = reference_bank_summary(quality_reference_bank)
 label_options = ["unknown"] + list(STROKE_TYPES)
 with st.form("custom_upload_form"):
     uploaded_file = st.file_uploader(
-        "Upload a badminton stroke clip",
+        "Tải clip cú đánh cầu lông",
         type=["mp4", "mov", "avi", "mkv"],
-        help="Short single-stroke clips work best. Long videos can be slow because MediaPipe runs frame by frame.",
+        help="Clip ngắn một cú đánh là tốt nhất. Video dài sẽ chậm vì MediaPipe chạy từng frame.",
     )
-    ground_truth_choice = st.selectbox("Optional ground-truth label", label_options)
+    ground_truth_choice = st.selectbox("Nhãn đúng tùy chọn (ground truth)", label_options)
     run_dl = st.checkbox(
-        "Also run DL checkpoint (slower on CPU)",
+        "Chạy thêm DL checkpoint (chậm hơn trên CPU)",
         value=False,
-        help="RF is fast and enabled by default. DL adds GCN+BiLSTM+Attention inference if the checkpoint is available.",
+        help="RF nhanh và luôn chạy. DL thêm inference GCN+BiLSTM+Attention nếu có checkpoint.",
     )
-    submitted = st.form_submit_button("Run upload pipeline", type="primary")
+    submitted = st.form_submit_button("Chạy upload pipeline", type="primary")
 
 ground_truth = None if ground_truth_choice == "unknown" else ground_truth_choice
 
 if not submitted:
-    st.info("Upload a short video clip, optionally choose a ground-truth label, then run the live pipeline.")
+    st.info("Tải một clip ngắn, có thể chọn ground-truth label, rồi chạy live pipeline.")
     st.stop()
 
 if uploaded_file is None:
-    st.warning("Please upload a video file before running the pipeline.")
+    st.warning("Vui lòng tải video trước khi chạy pipeline.")
     st.stop()
 
 st.video(uploaded_file.getvalue())
@@ -82,9 +83,9 @@ try:
         if candidate.exists():
             dl_checkpoint_path = candidate
         else:
-            st.warning(f"DL checkpoint not found, continuing RF-only: {candidate}")
+            st.warning(f"Không tìm thấy DL checkpoint, tiếp tục RF-only: {candidate}")
 
-    with st.spinner("Running MediaPipe pose extraction and model inference..."):
+    with st.spinner("Đang chạy MediaPipe pose extraction và model inference..."):
         run = run_uploaded_video_pipeline(
             saved_path,
             sample_id=f"upload_{uuid4().hex[:8]}",
@@ -95,12 +96,12 @@ try:
             quality_references=quality_reference_bank,
         )
 except (ArtifactValidationError, FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
-    st.error(f"Upload pipeline failed: {exc}")
+    st.error(f"Upload pipeline thất bại: {exc}")
     st.stop()
 
-st.success("Upload pipeline completed.")
+st.success("Upload pipeline đã hoàn tất.")
 
-st.header("Prediction summary")
+st.header("Tóm tắt dự đoán")
 quality_report = run.diagnostics.get("quality_report", {})
 metrics = [
     ("Ground truth", ground_truth or "unknown", "Optional user-provided label"),
@@ -118,16 +119,16 @@ metric_row(metrics)
 
 col_rf, col_pose = st.columns(2)
 with col_rf:
-    st.subheader("RF probabilities")
+    st.subheader("Xác suất RF")
     rf_rows = probability_rows(run.rf_prediction.probabilities)
     if rf_rows:
         st.pyplot(horizontal_bar_figure(rf_rows, "class", "probability", "Uploaded clip RF probabilities"))
     else:
-        st.info("No RF probabilities available.")
+        st.info("Không có xác suất RF.")
     st.write(run.diagnostics.get("rf_summary", "No RF summary available."))
     if quality_report:
         st.write(run.diagnostics.get("quality_summary", ""))
-        with st.expander("Technique quality feedback", expanded=True):
+        with st.expander("Phản hồi chất lượng kỹ thuật", expanded=True):
             reference_match = quality_report.get("reference_match", {})
             st.write(
                 f"Reference bank: {quality_reference_summary}. "
@@ -138,7 +139,7 @@ with col_rf:
                 st.write(f"- {item}")
 
 with col_pose:
-    st.subheader("Pose quality")
+    st.subheader("Chất lượng pose (Pose quality)")
     pose_rows = [
         {"metric": "reliability_score", "value": run.pose_qc.get("reliability_score")},
         {"metric": "reliability_label", "value": run.pose_qc.get("reliability_label")},
@@ -148,11 +149,11 @@ with col_pose:
     ]
     st.dataframe(pd.DataFrame(pose_rows).astype(str), width="stretch")
     if run.pose_qc.get("warnings"):
-        st.warning("Pose warnings: " + "; ".join(run.pose_qc["warnings"]))
+        st.warning("Cảnh báo pose: " + "; ".join(run.pose_qc["warnings"]))
     else:
-        st.success("No pose warnings for this upload.")
+        st.success("Không có cảnh báo pose cho upload này.")
 
-st.header("Extracted skeleton preview")
+st.header("Xem trước skeleton đã trích xuất")
 raw = run.arrays.get("raw_keypoints")
 if raw is not None and raw.size:
     frame_idx = st.slider("Frame", min_value=0, max_value=int(raw.shape[0] - 1), value=int(raw.shape[0] // 2))
@@ -161,10 +162,10 @@ if raw is not None and raw.size:
     if st.session_state.get("detail_level") == "Technical":
         st.dataframe(pd.DataFrame(skeleton_frame_rows(run, frame_idx)), width="stretch")
 else:
-    st.info("No raw keypoints available for skeleton preview.")
+    st.info("Không có raw keypoints để xem skeleton.")
 
 if run.dl_prediction.label:
-    st.header("Optional DL result")
+    st.header("Kết quả DL tùy chọn")
     dl_rows = probability_rows(run.dl_prediction.probabilities)
     if dl_rows:
         st.pyplot(horizontal_bar_figure(dl_rows, "class", "probability", "Uploaded clip DL probabilities"))
@@ -184,3 +185,5 @@ with st.expander("Technical: upload PipelineRun metadata", expanded=st.session_s
 st.caption(
     "Upload mode is a beta live-processing path. It is useful for authenticity, but curated mode is safer for live presentation."
 )
+
+render_glossary_footer()

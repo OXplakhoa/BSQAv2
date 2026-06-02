@@ -6,18 +6,18 @@ import streamlit as st
 
 from components.charts import attention_frame_importance, probability_rows
 from components.data import load_selected_case
-from components.ui import explanation_card, metric_row, render_sidebar, show_video
+from components.ui import explanation_card, metric_row, render_glossary_footer, render_sidebar, show_video
 
 
-st.set_page_config(page_title="Full Pipeline Demo", page_icon="🏸", layout="wide")
+st.set_page_config(page_title="Full Pipeline Demo — Demo pipeline đầy đủ", page_icon="🏸", layout="wide")
 
 sample_id = render_sidebar()
-st.title("Full Pipeline Demo")
+st.title("Full Pipeline Demo — Demo pipeline đầy đủ")
 
 explanation_card(
-    "Pipeline walkthrough",
-    "This page follows one curated clip through the cached pipeline artifact: video metadata, "
-    "pose quality, normalized skeleton, RF prediction, DL prediction, and branch comparison.",
+    "Đi theo pipeline từng bước",
+    "Trang này đi theo một clip curated qua artifact pipeline đã cache: video metadata, "
+    "pose quality, normalized skeleton, RF prediction, DL prediction, và branch comparison.",
 )
 
 if sample_id is None:
@@ -39,7 +39,7 @@ with right:
         ("Pose score", f"{run.pose_qc.get('reliability_score', 0):.2f}", run.pose_qc.get("reliability_label", "unknown")),
     ])
 
-st.subheader("Pipeline stages")
+st.subheader("Các bước pipeline")
 st.progress(1.0)
 st.markdown(
     """
@@ -55,19 +55,21 @@ st.markdown(
 
 col_rf, col_dl = st.columns(2)
 with col_rf:
-    st.subheader("Random Forest")
+    st.subheader("Random Forest (RF)")
     st.bar_chart(pd.DataFrame(probability_rows(run.rf_prediction.probabilities)).set_index("class"))
     st.write(run.diagnostics.get("rf_summary", "No RF summary available."))
 
 with col_dl:
-    st.subheader("Deep Learning")
+    st.subheader("Deep Learning (DL)")
     st.bar_chart(pd.DataFrame(probability_rows(run.dl_prediction.probabilities)).set_index("class"))
     st.write(run.diagnostics.get("dl_summary", "No DL summary available."))
 
-st.subheader("Branch comparison")
+st.subheader("So sánh hai nhánh")
 st.write(run.diagnostics.get("branch_comparison", "No branch comparison available."))
 
 attention_rows = attention_frame_importance(run)
 if attention_rows:
-    st.subheader("DL frame importance")
+    st.subheader("Frame quan trọng theo DL Attention")
     st.line_chart(pd.DataFrame(attention_rows).set_index("frame"))
+
+render_glossary_footer()

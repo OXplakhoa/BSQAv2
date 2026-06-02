@@ -1,11 +1,20 @@
+import tempfile
 import unittest
+from pathlib import Path
+
+from torch.utils.tensorboard import SummaryWriter
 
 from webapp.components.eval_viz import (
+    available_training_curve_folds,
+    available_training_curve_tags,
     comparison_rows,
+    discover_training_run_dirs,
     dl_final_metrics,
     fold_artifact_rows,
+    load_tensorboard_scalars,
     per_class_metric_rows,
     rf_summary_metrics,
+    training_curve_figure,
 )
 
 
@@ -51,6 +60,37 @@ class EvalVizTests(unittest.TestCase):
         self.assertEqual(rows[0]["fold"], 0)
         self.assertEqual(rows[0]["checkpoint"], "best_model_fold0.pth")
         self.assertEqual(rows[0]["cv_accuracy_mean"], 0.6)
+
+    def test_load_tensorboard_scalars_reads_train_val_curves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "gcn_test_run"
+            fold_dir = run_dir / "fold_0"
+            writer = SummaryWriter(log_dir=str(fold_dir))
+            writer.add_scalar("Loss/train", 1.0, 0)
+            writer.add_scalar("Loss/val", 1.2, 0)
+            writer.add_scalar("Acc/train", 0.5, 0)
+            writer.add_scalar("Acc/val", 0.4, 0)
+            writer.flush()
+            writer.close()
+
+            runs = discover_training_run_dirs(Path(tmp))
+            self.assertIn(run_dir, runs)
+
+            rows = load_tensorboard_scalars(run_dir)
+            tags = available_training_curve_tags(rows)
+            folds = available_training_curve_folds(rows)
+            self.assertIn("Loss/train", tags)
+            self.assertIn("Acc/val", tags)
+            self.assertEqual(folds, ["0"])
+            self.assertTrue(any(row["value"] == 1.0 for row in rows))
+
+    def test_training_curve_figure_returns_matplotlib_figure(self):
+        rows = [
+            {"fold": "0", "tag": "Loss/train", "step": 0, "value": 1.0},
+            {"fold": "0", "tag": "Loss/train", "step": 1, "value": 0.8},
+        ]
+        fig = training_curve_figure(rows, selected_tags=["Loss/train"], selected_fold="0")
+        self.assertTrue(hasattr(fig, "savefig"))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dl-cv-summary", type=Path, default=PROJECT_ROOT / "_colab_results" / "gcn_bilstm_attn_20260528_095136" / "cv_summary.json")
     parser.add_argument("--colab-run-dir", type=Path, default=PROJECT_ROOT / "_colab_results" / "gcn_bilstm_attn_20260528_095136")
     parser.add_argument("--artifact-root", type=Path, default=PROJECT_ROOT / "webapp" / "artifacts")
+    parser.add_argument("--manual-quality-labels", type=Path, default=PROJECT_ROOT / "data" / "manual_quality_labels_50.csv")
+    parser.add_argument("--manual-quality-results", type=Path, default=PROJECT_ROOT / "data" / "manual_quality_evaluation_50.csv")
     parser.add_argument("--skip-quality-validation", action="store_true", help="Skip Phase 4 reference-vs-degraded quality validation")
     parser.add_argument("--max-quality-refs-per-stroke", type=int, default=2, help="Maximum curated references per stroke used for quality validation")
     return parser.parse_args()
@@ -39,6 +41,8 @@ def main() -> None:
         dl_cv_summary_path=args.dl_cv_summary,
         colab_run_dir=args.colab_run_dir,
         artifact_root=args.artifact_root,
+        manual_quality_labels_path=args.manual_quality_labels,
+        manual_quality_results_path=args.manual_quality_results,
     )
     summary = generate_evaluation_report(
         output_dir=args.output,

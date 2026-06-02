@@ -15,20 +15,20 @@ from components.error_viz import (
     prediction_audit_rows,
     probability_comparison_rows,
 )
-from components.ui import explanation_card, metric_row, render_sidebar, show_video
+from components.ui import explanation_card, metric_row, render_glossary_footer, render_sidebar, show_video
 from src.observatory.diagnostics import confidence_margin
 
 
-st.set_page_config(page_title="Error Analysis Lab", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Error Analysis Lab — Phân tích lỗi", page_icon="🔍", layout="wide")
 
 sample_id = render_sidebar()
-st.title("Error Analysis Lab")
+st.title("Error Analysis Lab — Phân tích lỗi")
 
 explanation_card(
-    "Turn errors into evidence",
-    "This page does not hide wrong or uncertain predictions. It compares RF and DL branches, "
-    "checks confidence margins, surfaces pose-quality risks, and explains likely class-confusion causes. "
-    "For uploaded clips without ground truth, the page must stay cautious and avoid correctness claims.",
+    "Biến lỗi thành bằng chứng",
+    "Trang này không che giấu dự đoán sai hoặc chưa chắc. Nó so sánh nhánh RF và DL, "
+    "kiểm tra confidence margin, nêu rủi ro pose-quality, và giải thích nguyên nhân class-confusion có thể xảy ra. "
+    "Với clip upload không có ground truth, app luôn thận trọng và không khẳng định đúng/sai.",
 )
 
 if sample_id is None:
@@ -54,7 +54,7 @@ with left:
     st.subheader(sample.title)
     show_video(sample.video_path)
 with right:
-    st.subheader("Selected-case audit")
+    st.subheader("Audit mẫu đang chọn")
     metric_row([
         ("Ground truth", ground_truth or "unknown", "No correctness claim is made if missing"),
         ("RF status", rf_status, "RF prediction compared with ground truth"),
@@ -75,11 +75,11 @@ if not ground_truth:
     )
 
 st.divider()
-st.header("Prediction comparison")
+st.header("So sánh dự đoán")
 
 col_audit, col_probs = st.columns([1, 1.1])
 with col_audit:
-    st.subheader("Correctness and confidence margin")
+    st.subheader("Đúng/sai và confidence margin")
     audit_rows = prediction_audit_rows(run, ground_truth)
     st.dataframe(pd.DataFrame(audit_rows), width="stretch")
 
@@ -92,44 +92,44 @@ with col_audit:
         st.write(
             f"DL margin: **{dl_margin:.3f}**" if dl_margin is not None else "DL margin unavailable",
         )
-        st.caption("Small top-1/top-2 margin suggests an ambiguous case even when the final label is correct.")
+        st.caption("Top-1/top-2 margin nhỏ cho thấy mẫu dễ nhầm, kể cả khi nhãn cuối đúng.")
 
 with col_probs:
-    st.subheader("RF vs DL probability gap")
+    st.subheader("Khoảng cách xác suất RF vs DL")
     probability_rows_merged = probability_comparison_rows(run)
     if probability_rows_merged:
         st.dataframe(pd.DataFrame(probability_rows_merged), width="stretch")
     else:
-        st.info("No probability dictionaries available for branch comparison.")
+        st.info("Không có probability dictionary để so sánh hai nhánh.")
 
 chart_cols = st.columns(2)
 with chart_cols[0]:
     rf_rows = probability_rows(run.rf_prediction.probabilities)
     if rf_rows:
-        st.pyplot(horizontal_bar_figure(rf_rows, "class", "probability", "RF probabilities"))
+        st.pyplot(horizontal_bar_figure(rf_rows, "class", "probability", "Xác suất RF"))
 with chart_cols[1]:
     dl_rows = probability_rows(run.dl_prediction.probabilities)
     if dl_rows:
         st.pyplot(horizontal_bar_figure(dl_rows, "class", "probability", "DL probabilities"))
 
 st.divider()
-st.header("Likely error factors")
+st.header("Yếu tố có thể gây lỗi")
 
 factor_cols = st.columns(2)
 with factor_cols[0]:
-    st.subheader("Pose quality contribution")
+    st.subheader("Ảnh hưởng từ pose quality")
     risk_rows = pose_risk_rows(run)
     st.dataframe(pd.DataFrame(risk_rows), width="stretch")
     if run.pose_qc.get("warnings"):
-        st.warning("Pose warnings: " + "; ".join(run.pose_qc.get("warnings", [])))
+        st.warning("Cảnh báo pose: " + "; ".join(run.pose_qc.get("warnings", [])))
     else:
-        st.success("No pose warnings for this selected case.")
+        st.success("Không có cảnh báo pose cho mẫu đang chọn.")
 
 with factor_cols[1]:
-    st.subheader("Class-confusion note")
+    st.subheader("Ghi chú class dễ nhầm")
     predicted_for_note = run.dl_prediction.label if dl_status == "incorrect" else run.rf_prediction.label
     st.write(known_confusion_note(ground_truth, predicted_for_note))
-    st.subheader("Automatic branch diagnosis")
+    st.subheader("Chẩn đoán tự động giữa các nhánh")
     st.write(run.diagnostics.get("branch_comparison", "No branch-comparison diagnostic available."))
     st.write(run.diagnostics.get("rf_summary", "No RF summary available."))
     st.write(run.diagnostics.get("dl_summary", "No DL summary available."))
@@ -138,9 +138,9 @@ with st.expander("Curated error/ambiguity cases", expanded=True):
     rows = curated_error_case_rows(load_curated_samples(), selected_sample_id=sample_id)
     if rows:
         st.dataframe(pd.DataFrame(rows), width="stretch")
-        st.caption("Use the sidebar sample selector to jump to one of these teaching cases.")
+        st.caption("Dùng bộ chọn mẫu ở sidebar để chuyển tới các case minh hoạ này.")
     else:
-        st.info("No curated error/ambiguity cases found in the manifest tags.")
+        st.info("Không tìm thấy case lỗi/dễ nhầm trong manifest tags.")
 
 if st.session_state.get("detail_level") == "Technical":
     with st.expander("Technical: raw diagnostics payload", expanded=False):
@@ -150,3 +150,5 @@ st.caption(
     "Error analysis is intentionally cautious: wrong predictions can come from pose tracking, feature overlap, "
     "small confidence margins, missing racket/shuttle context, or model limitations."
 )
+
+render_glossary_footer()

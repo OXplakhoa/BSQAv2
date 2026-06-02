@@ -19,23 +19,23 @@ from components.dm_viz import (
     mutual_information_rows,
     rf_top_feature_rows,
 )
-from components.ui import explanation_card, metric_row, render_sidebar, show_video
+from components.ui import explanation_card, metric_row, render_glossary_footer, render_sidebar, show_video
 from src.observatory.artifacts import ArtifactRegistry
 from src.observatory.dm_inference import load_rf_bundle
 from src.observatory.schema import ArtifactValidationError
 
 
-st.set_page_config(page_title="Data Mining Motion Lab", page_icon="⛏️", layout="wide")
+st.set_page_config(page_title="Data Mining Motion Lab — Phân tích chuyển động", page_icon="⛏️", layout="wide")
 
 sample_id = render_sidebar()
-st.title("Data Mining Motion Lab")
+st.title("Data Mining Motion Lab — Phân tích chuyển động")
 
 explanation_card(
-    "Engineered motion features + interpretable mining",
-    "This page connects the selected clip to the Data Mining branch. The RF model uses "
-    "biomechanical features extracted from the skeleton sequence; the global figures show "
-    "which features reduce class uncertainty across the dataset, while the local tables show "
-    "what values were measured for this specific stroke.",
+    "Engineered motion features + khai phá dễ giải thích",
+    "Trang này nối clip đang chọn với nhánh Data Mining. RF model dùng "
+    "biomechanical features trích xuất từ chuỗi skeleton; các hình global cho thấy "
+    "feature nào giảm uncertainty về class trên toàn dataset, còn bảng local cho biết "
+    "giá trị đo được của cú đánh cụ thể này.",
 )
 
 if sample_id is None:
@@ -72,7 +72,7 @@ with left:
     st.subheader(sample.title)
     show_video(sample.video_path)
 with right:
-    st.subheader("Local RF prediction")
+    st.subheader("Dự đoán RF cho mẫu hiện tại")
     metric_row([
         ("Ground truth", sample.ground_truth or "unknown", "Manual curated label"),
         ("RF prediction", run.rf_prediction.label or "missing", "Random Forest on biomechanical features"),
@@ -88,11 +88,11 @@ with right:
             title="RF class probabilities",
         ))
     else:
-        st.info("No RF probability data available for this PipelineRun.")
+        st.info("Không có dữ liệu xác suất RF cho PipelineRun này.")
     st.write(run.diagnostics.get("rf_summary", "No RF summary available."))
 
 st.divider()
-st.header("Global dataset mining")
+st.header("Khai phá toàn bộ dataset")
 
 entropy_cols = st.columns(4)
 entropy_cols[0].metric(
@@ -118,7 +118,7 @@ entropy_cols[3].metric(
 
 col_entropy, col_mi = st.columns(2)
 with col_entropy:
-    st.subheader("Class distribution and entropy")
+    st.subheader("Phân bố class và entropy")
     entropy_rows = entropy_class_rows(entropy_payload)
     if entropy_rows:
         st.pyplot(horizontal_bar_figure(
@@ -129,10 +129,10 @@ with col_entropy:
         ))
         st.dataframe(pd.DataFrame(entropy_rows), width="stretch")
     else:
-        st.info("Entropy analysis artifact not found.")
+        st.info("Không tìm thấy artifact phân tích entropy.")
 
 with col_mi:
-    st.subheader("Mutual information ranking")
+    st.subheader("Xếp hạng mutual information")
     if mi_rows:
         st.pyplot(horizontal_bar_figure(
             mi_rows,
@@ -140,21 +140,21 @@ with col_mi:
             value_key="mutual_information",
             title="Top mutual information features",
         ))
-        st.caption("Higher values mean the feature reduces more uncertainty about stroke class.")
+        st.caption("Giá trị cao hơn nghĩa là feature giúp giảm uncertainty về stroke class nhiều hơn.")
     else:
-        st.info("Mutual information CSV not found.")
+        st.info("Không tìm thấy CSV mutual information.")
 
 col_rf, col_tree = st.columns(2)
 with col_rf:
-    st.subheader("Random Forest global evidence")
+    st.subheader("Bằng chứng toàn cục của RF")
     feature_importance_path = existing_path(RESULTS_ROOT / "rf_baseline" / "rf_feature_importance.png")
     if feature_importance_path:
         st.image(str(feature_importance_path), caption="RF feature importance")
     else:
-        st.info("RF feature-importance figure is missing.")
+        st.info("Thiếu hình RF feature-importance.")
 
 with col_tree:
-    st.subheader("Decision Tree interpretable baseline")
+    st.subheader("Decision Tree baseline dễ giải thích")
     if tree_results:
         metric_row([
             ("CV accuracy", f"{tree_results.get('cv_accuracy_mean', 0):.3f}", "Decision Tree cross-validation mean"),
@@ -165,13 +165,13 @@ with col_tree:
         if split_rows:
             st.dataframe(pd.DataFrame(split_rows), width="stretch")
     else:
-        st.info("Decision Tree result JSON not found.")
+        st.info("Không tìm thấy JSON kết quả Decision Tree.")
 
 with st.expander("More global Data Mining figures", expanded=st.session_state.get("detail_level") == "Technical"):
     fig_cols = st.columns(3)
     figures = [
         ("RF confusion matrix", RESULTS_ROOT / "rf_baseline" / "rf_confusion_matrix.png"),
-        ("Normalized RF confusion matrix", RESULTS_ROOT / "rf_baseline" / "rf_confusion_matrix_norm.png"),
+        ("RF confusion matrix đã normalize", RESULTS_ROOT / "rf_baseline" / "rf_confusion_matrix_norm.png"),
         ("Mutual information", DM_RESULTS_ROOT / "mutual_information.png"),
         ("Feature correlation", DM_RESULTS_ROOT / "feature_correlation.png"),
         ("Feature distributions", DM_RESULTS_ROOT / "feature_distributions.png"),
@@ -186,19 +186,19 @@ with st.expander("More global Data Mining figures", expanded=st.session_state.ge
                 st.caption(f"Missing: {caption}")
 
 st.divider()
-st.header("Local current-sample explanation")
+st.header("Giải thích mẫu hiện tại")
 
 local_cols = st.columns(2)
 with local_cols[0]:
-    st.subheader("Top RF features for this clip")
+    st.subheader("Feature RF quan trọng nhất của clip này")
     top_rows = rf_top_feature_rows(rf_results, run.dm_features, top_n=12)
     if top_rows:
         st.dataframe(pd.DataFrame(top_rows), width="stretch")
     else:
-        st.info("No RF top-feature metadata available.")
+        st.info("Không có metadata top-feature của RF.")
 
 with local_cols[1]:
-    st.subheader("Current sample vs predicted-class average")
+    st.subheader("Mẫu hiện tại vs trung bình class dự đoán")
     if rf_bundle is not None and run.rf_prediction.label:
         comparison_rows = class_average_comparison_rows(
             rf_bundle,
@@ -209,15 +209,15 @@ with local_cols[1]:
         if comparison_rows:
             st.dataframe(pd.DataFrame(comparison_rows), width="stretch")
         else:
-            st.info("No class-average comparison rows available.")
+            st.info("Không có dòng so sánh với trung bình class.")
     elif rf_bundle_error:
         st.warning(rf_bundle_error)
     else:
-        st.info("RF bundle or RF prediction is missing.")
+        st.info("Thiếu RF bundle hoặc dự đoán RF.")
 
 info_gain_rows = entropy_information_gain_rows(entropy_payload, top_n=10)
 if info_gain_rows and st.session_state.get("detail_level") == "Technical":
-    st.subheader("Entropy information-gain details")
+    st.subheader("Chi tiết information gain từ entropy")
     st.dataframe(pd.DataFrame(info_gain_rows), width="stretch")
 
 with st.expander("Technical: all extracted biomechanical features", expanded=False):
@@ -226,17 +226,19 @@ with st.expander("Technical: all extracted biomechanical features", expanded=Fal
     if feature_rows:
         st.dataframe(pd.DataFrame(feature_rows), width="stretch")
     else:
-        st.info("No biomechanical feature dictionary found in this PipelineRun.")
+        st.info("Không có dictionary biomechanical features trong PipelineRun này.")
 
 with st.expander("Technical: decision tree rules", expanded=False):
     if tree_rules:
         st.code(tree_rules[:12000], language="text")
         if len(tree_rules) > 12000:
-            st.caption("Rules truncated for display.")
+            st.caption("Rules đã được cắt ngắn để hiển thị.")
     else:
-        st.info("Decision Tree rules text file not found.")
+        st.info("Không tìm thấy file text Decision Tree rules.")
 
 st.caption(
     "Data Mining branch summary: RF is the strongest numerical classifier in this project. "
     "Decision Tree, entropy, and mutual information are shown for interpretability and theory connection."
 )
+
+render_glossary_footer()

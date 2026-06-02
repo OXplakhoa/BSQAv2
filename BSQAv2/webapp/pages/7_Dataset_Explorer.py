@@ -13,19 +13,19 @@ from components.dataset_viz import (
     source_summary_rows,
 )
 from components.dm_viz import horizontal_bar_figure, load_json_file
-from components.ui import explanation_card, metric_row, render_sidebar
+from components.ui import explanation_card, metric_row, render_glossary_footer, render_sidebar
 from components.data import load_curated_samples
 
 
-st.set_page_config(page_title="Dataset Explorer", page_icon="🗂️", layout="wide")
+st.set_page_config(page_title="Dataset Explorer — Khám phá dữ liệu", page_icon="🗂️", layout="wide")
 
 sample_id = render_sidebar()
-st.title("Dataset Explorer")
+st.title("Dataset Explorer — Khám phá dữ liệu")
 
 explanation_card(
-    "What data supports the pipeline?",
-    "This page summarizes the skeleton CSV sources, class balance, curated sample bank, and label/pose-quality metadata. "
-    "It helps defend that the demo cases are not isolated screenshots: they are connected to a larger pose dataset and a reviewed curated manifest.",
+    "Dữ liệu nào chống lưng cho pipeline?",
+    "Trang này tóm tắt nguồn skeleton CSV, class balance, curated sample bank, và metadata label/pose-quality. "
+    "Nó giúp chứng minh demo case không phải ảnh chụp rời rạc: chúng nối với dataset pose lớn hơn và manifest curated đã review.",
 )
 
 DATA_ROOT = PROJECT_ROOT / "data"
@@ -50,7 +50,7 @@ total_rows = sum(row["rows"] for row in summaries)
 total_samples = sum(row["samples"] for row in summaries)
 total_files = len(summaries)
 
-st.header("Dataset overview")
+st.header("Tổng quan dataset")
 metric_row([
     ("Skeleton CSV files", str(total_files), "CSV files discovered under data source folders"),
     ("Unique stroke samples", str(total_samples), "Unique ids summed across source CSVs"),
@@ -63,52 +63,52 @@ st.caption(
 )
 
 st.divider()
-st.header("Class and source distribution")
+st.header("Phân bố class và nguồn dữ liệu")
 
 col_class, col_source = st.columns(2)
 with col_class:
-    st.subheader("Samples by stroke class")
+    st.subheader("Số mẫu theo loại cú đánh")
     if class_rows:
         st.pyplot(horizontal_bar_figure(class_rows, "stroke_type", "samples", "Unique samples by class"))
         st.dataframe(pd.DataFrame(class_rows), width="stretch")
     else:
-        st.info("No skeleton CSV summaries found.")
+        st.info("Không tìm thấy tóm tắt skeleton CSV.")
 
 with col_source:
-    st.subheader("Samples by source folder")
+    st.subheader("Số mẫu theo thư mục nguồn")
     if source_rows:
         st.pyplot(horizontal_bar_figure(source_rows, "source", "samples", "Unique samples by source"))
         st.dataframe(pd.DataFrame(source_rows), width="stretch")
     else:
-        st.info("No source summaries found.")
+        st.info("Không có tóm tắt theo source.")
 
 with st.expander("Technical: discovered CSV files", expanded=st.session_state.get("detail_level") == "Technical"):
     if summaries:
         st.dataframe(pd.DataFrame(summaries), width="stretch")
     else:
-        st.info("No CSV files found in known source folders.")
+        st.info("Không tìm thấy CSV trong các thư mục nguồn đã biết.")
 
 st.divider()
-st.header("Curated sample bank")
+st.header("Ngân hàng mẫu curated")
 
 curated_cols = st.columns([1, 1])
 with curated_cols[0]:
-    st.subheader("Curated manifest entries")
+    st.subheader("Các dòng trong curated manifest")
     if curated_rows:
         st.dataframe(pd.DataFrame(curated_rows), width="stretch")
     else:
-        st.info("No curated samples loaded from manifest.")
+        st.info("Không load được mẫu curated từ manifest.")
 
 with curated_cols[1]:
-    st.subheader("Manual review / label trust")
+    st.subheader("Kiểm tra thủ công / độ tin nhãn")
     if quality_rows:
         st.pyplot(horizontal_bar_figure(quality_rows, "manual_review_status", "count", "Curated label review status"))
         st.dataframe(pd.DataFrame(quality_rows), width="stretch")
     else:
-        st.info("No manual review metadata found.")
+        st.info("Không có metadata manual review.")
 
 st.divider()
-st.header("Pose quality distribution for curated cases")
+st.header("Phân bố pose quality của mẫu curated")
 
 if pose_rows:
     pose_df = pd.DataFrame(pose_rows)
@@ -121,10 +121,10 @@ if pose_rows:
     st.pyplot(horizontal_bar_figure(pose_rows, "sample_id", "pose_reliability_score", "Curated pose reliability by sample"))
     st.dataframe(pose_df, width="stretch")
 else:
-    st.info("No pose reliability metadata found in manifest.")
+    st.info("Không có metadata pose reliability trong manifest.")
 
 st.divider()
-st.header("Selected sample context")
+st.header("Ngữ cảnh mẫu đang chọn")
 
 selected = next((sample for sample in samples if sample.sample_id == sample_id), None)
 if selected:
@@ -137,7 +137,7 @@ if selected:
     st.write("**Teaching point:**", selected.teaching_point)
     st.write("**Diagnosis:**", selected.diagnosis)
 else:
-    st.info("No selected curated sample available.")
+    st.info("Không có mẫu curated đang chọn.")
 
 with st.expander("Technical: raw curated manifest", expanded=False):
     st.json(manifest_payload)
@@ -146,3 +146,5 @@ st.caption(
     "Dataset Explorer scope: static local dataset and curated-manifest inspection. "
     "Future work can add source-specific train/validation/test split views and richer pose-quality histograms."
 )
+
+render_glossary_footer()

@@ -15,23 +15,23 @@ from components.robustness_viz import (
     robustness_curve_rows,
 )
 from components.skeleton_view import skeleton_figure
-from components.ui import explanation_card, metric_row, render_sidebar, show_video
+from components.ui import explanation_card, metric_row, render_glossary_footer, render_sidebar, show_video
 from src.data.biomechanics import extract_features
 from src.observatory.artifacts import ArtifactRegistry
 from src.observatory.dm_inference import load_rf_bundle
 from src.observatory.schema import ArtifactValidationError, PredictionResult
 
 
-st.set_page_config(page_title="Robustness Experiment", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="Robustness Experiment — Thử độ bền mô hình", page_icon="🧪", layout="wide")
 
 sample_id = render_sidebar()
-st.title("Robustness Experiment")
+st.title("Robustness Experiment — Thử độ bền mô hình")
 
 explanation_card(
-    "How sensitive is the pipeline to pose degradation?",
-    "This lab perturbs the selected cached skeleton with artificial noise, joint dropout, and frame dropout. "
-    "It reruns the fast Data Mining/RF branch on degraded features to show how upstream pose quality can change downstream confidence. "
-    "The cached DL prediction is shown as a baseline reference; live DL re-inference is intentionally avoided here for presentation speed.",
+    "Pipeline nhạy thế nào khi pose bị degrade?",
+    "Lab này thêm artificial noise, joint dropout, và frame dropout vào skeleton cached đang chọn. "
+    "Nó chạy lại nhánh Data Mining/RF nhanh trên degraded features để cho thấy pose quality đầu vào có thể đổi confidence đầu ra. "
+    "Dự đoán DL cached được dùng làm baseline reference; live DL re-inference được tránh để giữ tốc độ thuyết trình.",
 )
 
 if sample_id is None:
@@ -42,7 +42,7 @@ sample = case.sample
 run = case.run
 normalized = run.arrays.get("normalized_keypoints")
 if normalized is None:
-    st.error("Selected PipelineRun has no normalized_keypoints array.")
+    st.error("PipelineRun đang chọn không có mảng normalized_keypoints.")
     st.stop()
 
 left, right = st.columns([1.0, 1.1])
@@ -50,7 +50,7 @@ with left:
     st.subheader(sample.title)
     show_video(sample.video_path)
 with right:
-    st.subheader("Baseline predictions")
+    st.subheader("Dự đoán gốc (baseline)")
     metric_row([
         ("Ground truth", sample.ground_truth or "unknown", "Manual curated label"),
         ("Baseline RF", run.rf_prediction.label or "missing", "Cached RF prediction"),
@@ -59,18 +59,18 @@ with right:
     ])
 
 st.divider()
-st.header("Degradation controls")
+st.header("Điều khiển gây nhiễu")
 
 ctrl_cols = st.columns(4)
 with ctrl_cols[0]:
-    noise_std = st.slider("Coordinate noise σ", min_value=0.0, max_value=0.30, value=0.05, step=0.01)
+    noise_std = st.slider("Nhiễu tọa độ σ", min_value=0.0, max_value=0.30, value=0.05, step=0.01)
 with ctrl_cols[1]:
-    frame_dropout_rate = st.slider("Frame dropout", min_value=0.0, max_value=0.50, value=0.10, step=0.05)
+    frame_dropout_rate = st.slider("Bỏ frame (frame dropout)", min_value=0.0, max_value=0.50, value=0.10, step=0.05)
 with ctrl_cols[2]:
-    drop_wrists = st.checkbox("Drop wrists", value=False)
-    drop_elbows = st.checkbox("Drop elbows", value=False)
+    drop_wrists = st.checkbox("Ẩn cổ tay (drop wrists)", value=False)
+    drop_elbows = st.checkbox("Ẩn khuỷu tay (drop elbows)", value=False)
 with ctrl_cols[3]:
-    seed = st.number_input("Random seed", min_value=0, max_value=9999, value=42, step=1)
+    seed = st.number_input("Seed ngẫu nhiên", min_value=0, max_value=9999, value=42, step=1)
 
 registry = ArtifactRegistry()
 try:
@@ -97,7 +97,7 @@ degraded_prediction = _predict_rf(degraded)
 summary_rows = degradation_summary_rows(normalized, degraded)
 delta_rows = prediction_delta_rows(run.rf_prediction.probabilities, degraded_prediction.probabilities)
 
-st.subheader("Degraded RF result")
+st.subheader("Kết quả RF sau khi gây nhiễu")
 metric_row([
     ("Degraded RF", degraded_prediction.label or "missing", "RF prediction after artificial degradation"),
     ("Degraded confidence", f"{(degraded_prediction.confidence or 0):.3f}", "Top-class probability after degradation"),
@@ -107,32 +107,32 @@ metric_row([
 
 chart_cols = st.columns(2)
 with chart_cols[0]:
-    st.subheader("Baseline RF probabilities")
+    st.subheader("Xác suất RF gốc")
     baseline_rows = probability_rows(run.rf_prediction.probabilities)
     if baseline_rows:
-        st.pyplot(horizontal_bar_figure(baseline_rows, "class", "probability", "Baseline RF probabilities"))
+        st.pyplot(horizontal_bar_figure(baseline_rows, "class", "probability", "Xác suất RF gốc"))
 with chart_cols[1]:
-    st.subheader("Degraded RF probabilities")
+    st.subheader("Xác suất RF sau nhiễu")
     degraded_rows = probability_rows(degraded_prediction.probabilities)
     if degraded_rows:
-        st.pyplot(horizontal_bar_figure(degraded_rows, "class", "probability", "Degraded RF probabilities"))
+        st.pyplot(horizontal_bar_figure(degraded_rows, "class", "probability", "Xác suất RF sau nhiễu"))
 
-st.subheader("Probability changes")
+st.subheader("Thay đổi xác suất")
 if delta_rows:
     st.dataframe(pd.DataFrame(delta_rows), width="stretch")
 else:
-    st.info("No probability rows available for delta comparison.")
+    st.info("Không có dòng xác suất để so sánh delta.")
 
 st.divider()
-st.header("Pose degradation evidence")
+st.header("Bằng chứng pose bị degrade")
 
 pose_cols = st.columns(2)
 with pose_cols[0]:
-    st.subheader("Degradation summary")
+    st.subheader("Tóm tắt degradation")
     st.dataframe(pd.DataFrame(summary_rows), width="stretch")
 with pose_cols[1]:
-    st.subheader("Skeleton preview")
-    frame_index = st.slider("Preview frame", min_value=0, max_value=int(normalized.shape[0] - 1), value=int(normalized.shape[0] // 2))
+    st.subheader("Xem trước skeleton")
+    frame_index = st.slider("Frame xem trước", min_value=0, max_value=int(normalized.shape[0] - 1), value=int(normalized.shape[0] // 2))
 
 fig_cols = st.columns(2)
 with fig_cols[0]:
@@ -141,7 +141,7 @@ with fig_cols[1]:
     st.pyplot(skeleton_figure(degraded, frame_index=frame_index))
 
 st.divider()
-st.header("Noise sensitivity curve")
+st.header("Đường sensitivity theo nhiễu")
 
 curve_results = []
 for severity in [0.0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30]:
@@ -175,3 +175,5 @@ if st.session_state.get("detail_level") == "Technical":
 st.caption(
     "Robustness scope: cached skeleton perturbation + RF re-inference. Future work can cache DL degraded inference curves for faster live presentation."
 )
+
+render_glossary_footer()

@@ -17,6 +17,8 @@ from typing import Any, Dict, Iterable, List, Optional
 import numpy as np
 
 from src.config import PROJECT_ROOT, STROKE_TYPES
+from src.evaluation.ablation_metrics import ABLATION_MODEL_ROWS, QUALITY_METRIC_NOTE
+from src.evaluation.manual_quality import load_manual_quality_labels, load_manual_quality_results, summarize_manual_quality_results
 from src.observatory.artifacts import ArtifactRegistry
 from src.observatory.quality_references import QualityReferenceBank, load_quality_reference_bank, reference_bank_summary
 from src.quality.hybrid import HybridQualityScorer
@@ -31,6 +33,9 @@ FINAL_DL_METRICS = {
     "f1_macro_std": 0.0408,
     "f1_weighted": 0.6517,
     "f1_weighted_std": 0.0400,
+    "quality_mae": "N/A",
+    "quality_spearman_rs": "N/A",
+    "inference_ms_per_frame": 0.0647,
     "per_class_f1": {
         "smash": 0.824,
         "clear": 0.644,
@@ -38,7 +43,7 @@ FINAL_DL_METRICS = {
         "net_shot": 0.758,
         "lift": 0.434,
     },
-    "note": "Final selected spatial-temporal DL result from PRD/report values.",
+    "note": "Final selected spatial-temporal DL result from PRD/report values; quality head was not supervised with expert quality labels.",
 }
 
 
@@ -49,6 +54,8 @@ class EvaluationInputs:
     dl_cv_summary_path: Path = PROJECT_ROOT / "_colab_results" / "gcn_bilstm_attn_20260528_095136" / "cv_summary.json"
     colab_run_dir: Path = PROJECT_ROOT / "_colab_results" / "gcn_bilstm_attn_20260528_095136"
     artifact_root: Path = PROJECT_ROOT / "webapp" / "artifacts"
+    manual_quality_labels_path: Path = PROJECT_ROOT / "data" / "manual_quality_labels_50.csv"
+    manual_quality_results_path: Path = PROJECT_ROOT / "data" / "manual_quality_evaluation_50.csv"
 
 
 def _load_json(path: Path, missing: List[str]) -> Dict[str, Any]:
@@ -105,6 +112,9 @@ def rf_model_row(rf_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "f1_macro_std": None,
         "f1_weighted": _float(rf_results, "f1_weighted"),
         "f1_weighted_std": None,
+        "quality_mae": "N/A",
+        "quality_spearman_rs": "N/A",
+        "inference_ms_per_frame": None,
         "n_samples": rf_results.get("n_samples"),
         "n_features": rf_results.get("n_features"),
         "note": "Strongest numerical classifier in current artifacts.",
@@ -123,6 +133,9 @@ def decision_tree_model_row(tree_results: Dict[str, Any]) -> Optional[Dict[str, 
         "f1_macro_std": _float(tree_results, "cv_f1_macro_std"),
         "f1_weighted": None,
         "f1_weighted_std": None,
+        "quality_mae": "N/A",
+        "quality_spearman_rs": "N/A",
+        "inference_ms_per_frame": None,
         "n_samples": tree_results.get("n_samples"),
         "n_features": tree_results.get("n_features"),
         "note": "Interpretable baseline for data-mining discussion.",
@@ -142,6 +155,9 @@ def dl_model_rows(local_cv_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
             "f1_macro_std": _float(local_cv_summary, "f1_macro_std"),
             "f1_weighted": _float(local_cv_summary, "f1_weighted_mean"),
             "f1_weighted_std": _float(local_cv_summary, "f1_weighted_std"),
+            "quality_mae": "N/A",
+            "quality_spearman_rs": "N/A",
+            "inference_ms_per_frame": 0.0647,
             "n_samples": None,
             "n_features": None,
             "note": "Exploratory/local checkpoint metrics; kept separate from final report values.",
@@ -156,6 +172,7 @@ def build_model_comparison(
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     rows.extend(dl_model_rows(local_cv_summary))
+    rows.extend(dict(row) for row in ABLATION_MODEL_ROWS)
     for row in [rf_model_row(rf_results), decision_tree_model_row(tree_results)]:
         if row:
             rows.append(row)
@@ -249,6 +266,8 @@ def artifact_inventory(inputs: EvaluationInputs) -> Dict[str, Any]:
         "dl_cv_summary": str(inputs.dl_cv_summary_path),
         "colab_run_dir": str(inputs.colab_run_dir),
         "artifact_root": str(inputs.artifact_root),
+        "manual_quality_labels": str(inputs.manual_quality_labels_path),
+        "manual_quality_results": str(inputs.manual_quality_results_path),
     }
 
 
@@ -297,6 +316,9 @@ def _write_markdown_report(path: Path, summary: Dict[str, Any]) -> None:
     per_class = summary.get("per_class_metrics", [])
     quality_summary = summary.get("quality_validation", {}).get("summary", {})
     inventory = summary.get("checkpoint_inventory", {})
+    manual_quality = summary.get("manual_quality_subset", {})
+    manual_quality_summary = manual_quality.get("summary", {})
+    manual_quality_per_stroke = manual_quality.get("per_stroke", [])
 
     content = f"""# BSQAv2 Phase 5 Evaluation Report
 
@@ -304,11 +326,27 @@ Generated at: `{summary.get('generated_at')}`
 
 ## Model comparison
 
-{_markdown_table(comparison, ['model', 'family', 'accuracy', 'accuracy_std', 'f1_macro', 'f1_weighted', 'note'])}
+{_markdown_table(comparison, ['model', 'family', 'accuracy', 'accuracy_std', 'f1_macro', 'f1_weighted', 'quality_mae', 'quality_spearman_rs', 'inference_ms_per_frame', 'note'])}
+
+Quality metric note: {QUALITY_METRIC_NOTE}
 
 ## Per-class metrics
 
 {_markdown_table(per_class, ['class', 'rf_precision', 'rf_recall', 'rf_f1', 'rf_support', 'dl_f1'])}
+
+## Manual quality-label subset
+
+A 50-clip manual quality subset was labeled by badminton-domain judgement (10 clips per stroke class). The Phase 4 heuristic scorer was compared against these manual 0-100 labels.
+
+- Samples: `{manual_quality_summary.get('n_samples')}`
+- Manual-label mean: `{manual_quality_summary.get('manual_mean')}`
+- Predicted-quality mean: `{manual_quality_summary.get('predicted_mean')}`
+- Quality MAE: `{manual_quality_summary.get('mae')}`
+- Spearman rs: `{manual_quality_summary.get('spearman_rs')}`
+
+{_markdown_table(manual_quality_per_stroke, ['stroke_type', 'n_samples', 'manual_mean', 'predicted_mean', 'mae', 'spearman_rs'])}
+
+Honest interpretation: this measures the separate Phase 4 heuristic quality scorer, not classification-only LSTM/BiLSTM/GCN+LSTM heads.
 
 ## Quality-score validation
 
@@ -327,10 +365,11 @@ Phase 4 quality scoring was sanity-checked by comparing curated reference skelet
 
 ## Conclusions
 
-1. Random Forest remains the strongest numerical classifier in current local artifacts.
+1. The best available LSTM ablation is numerically strong in current local artifacts; Random Forest remains the strongest non-DL baseline.
 2. GCN + BiLSTM + Attention is retained as the proposed spatial-temporal DL architecture and supports attention inspection.
-3. Phase 4 quality scoring is heuristic and should be presented as 2D-pose technique similarity, not expert-labeled coaching truth.
-4. Custom Upload is beta; curated cached mode is the stable defense path.
+3. Quality MAE / Spearman rs are not reported for classification-only ablations because there are no expert quality labels.
+4. Phase 4 quality scoring is heuristic and should be presented as 2D-pose technique similarity, not expert-labeled coaching truth.
+5. Custom Upload is beta; curated cached mode is the stable defense path.
 """
     path.write_text(content, encoding="utf-8")
 
@@ -353,6 +392,14 @@ def generate_evaluation_report(
     comparison = build_model_comparison(rf_results, tree_results, local_cv_summary)
     per_class = build_per_class_rows(rf_results)
     checkpoints = checkpoint_inventory(inputs.colab_run_dir)
+    manual_quality_labels = load_manual_quality_labels(inputs.manual_quality_labels_path)
+    manual_quality_rows = load_manual_quality_results(inputs.manual_quality_results_path)
+    if not Path(inputs.manual_quality_labels_path).exists():
+        missing_artifacts.append(str(inputs.manual_quality_labels_path))
+    if not Path(inputs.manual_quality_results_path).exists():
+        missing_artifacts.append(str(inputs.manual_quality_results_path))
+    manual_quality_subset = summarize_manual_quality_results(manual_quality_rows)
+    manual_quality_subset["label_count"] = len(manual_quality_labels)
 
     quality_validation = {"rows": [], "summary": {"n_pairs": 0}}
     reference_summary: Dict[str, int] = {}
@@ -366,13 +413,19 @@ def generate_evaluation_report(
     comparison_csv = output_dir / "model_comparison.csv"
     per_class_csv = output_dir / "per_class_metrics.csv"
     quality_csv = output_dir / "quality_validation.csv"
+    manual_quality_summary_csv = output_dir / "manual_quality_summary.csv"
+    manual_quality_per_stroke_csv = output_dir / "manual_quality_per_stroke.csv"
     _write_csv(comparison_csv, comparison)
     _write_csv(per_class_csv, per_class)
     _write_csv(quality_csv, quality_validation.get("rows", []))
+    _write_csv(manual_quality_summary_csv, [manual_quality_subset.get("summary", {})])
+    _write_csv(manual_quality_per_stroke_csv, manual_quality_subset.get("per_stroke", []))
     generated_files.update({
         "model_comparison_csv": str(comparison_csv),
         "per_class_metrics_csv": str(per_class_csv),
         "quality_validation_csv": str(quality_csv),
+        "manual_quality_summary_csv": str(manual_quality_summary_csv),
+        "manual_quality_per_stroke_csv": str(manual_quality_per_stroke_csv),
     })
 
     plot_path = _write_accuracy_plot(output_dir / "model_accuracy_comparison.png", comparison)
@@ -387,11 +440,14 @@ def generate_evaluation_report(
         "per_class_metrics": per_class,
         "quality_reference_summary": reference_summary,
         "quality_validation": quality_validation,
+        "manual_quality_subset": manual_quality_subset,
         "checkpoint_inventory": checkpoints,
+        "quality_metric_note": QUALITY_METRIC_NOTE,
         "generated_files": generated_files,
         "conclusions": [
-            "Random Forest is strongest numerically in current artifacts.",
+            "Best LSTM ablation is numerically strong in current artifacts; Random Forest remains the strongest non-DL baseline.",
             "GCN + BiLSTM + Attention remains the proposed spatial-temporal architecture.",
+            "Quality MAE/Spearman are N/A for classification-only ablations because expert quality labels are unavailable.",
             "Phase 4 quality scoring is heuristic 2D-pose technique similarity.",
             "Curated cached demo is the stable defense path; Custom Upload is beta.",
         ],
